@@ -10,16 +10,16 @@ import (
 // GetUsers เป็นฟังก์ชันสำหรับดึงข้อมูล User ทั้งหมด
 func GetUsers(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		rows, err := db.Query("SELECT user_id, public_user_id, name, surname FROM public.users")
+		rows, err := db.Query("SELECT id, public_user_id, name, surname FROM public.auth_users")
 		if err != nil {
 			return c.Status(500).SendString("ดึงข้อมูลพลาด!")
 		}
 		defer rows.Close()
 
-		var users []models.User
+		var users []models.UserStruct
 		for rows.Next() {
-			var u models.User
-			if err := rows.Scan(&u.UserID, &u.PublicUserID, &u.Name, &u.Surname); err != nil {
+			var u models.UserStruct
+			if err := rows.Scan(&u.ID, &u.PublicUserID, &u.Name, &u.Surname); err != nil {
 				return c.Status(500).SendString("Scan ข้อมูลพลาด!")
 			}
 			users = append(users, u)
