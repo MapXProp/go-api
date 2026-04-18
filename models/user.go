@@ -6,4 +6,5 @@ type UserStruct struct {
 	PublicUserID string `json:"public_user_id"`
 	Name         string `json:"name"`
 	Surname      string `json:"surname"`
+	Email        string `json:"email"`
 }
