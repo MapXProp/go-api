@@ -15,7 +15,8 @@ func SetupRoutes(app *fiber.App, db *sql.DB) {
 
 	// --- User Routes ---
 	api.Get("/users", handlers.GetUsers(db))
-	// api.Post("/users", handlers.CreateUser(db)) // ตัวอย่างในอนาคต
+
+	api.Post("/signupNewUser", handlers.SignUp(db)) // API สำหรับ Register
 
 	// --- Property Routes (ถ้ามี) ---
 	// api.Get("/properties", handlers.GetProperties(db))
