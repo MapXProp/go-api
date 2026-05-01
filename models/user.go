@@ -9,10 +9,10 @@ type UserStruct struct {
 	Email        string `json:"email"`
 }
 
-// UserSignup คือโครงสร้างข้อมูลที่รับจาก Next.js (Register Form)
-type UserSignup struct {
+// UserRegister คือโครงสร้างข้อมูลที่รับจาก Next.js (Register Form)
+type UserRegisterStruct struct {
 	Email    string `json:"email"`
-	Password string `json:"password"`
+	Password string `json:"password_hash"`
 }
 
 // UserPublic คือโครงสร้างข้อมูลที่จะส่งกลับไป (ตัด Password ออก)

@@ -16,22 +16,22 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// SignUp เป็นฟังก์ชันสำหรับลงทะเบียนผู้ใช้ใหม่
-func SignUp(db *sql.DB) fiber.Handler {
+// Register เป็นฟังก์ชันสำหรับลงทะเบียนผู้ใช้ใหม่
+func UserRegister(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		var signupData models.UserSignup
+		var registerData models.UserRegisterStruct
 
 		// 1. รับข้อมูล JSON จาก Next.js
-		if err := c.BodyParser(&signupData); err != nil {
+		if err := c.BodyParser(&registerData); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "ข้อมูลไม่ถูกต้อง"})
 		}
 
 		// 2. Validation ขั้นพื้นฐาน
-		signupData.Email = strings.TrimSpace(strings.ToLower(signupData.Email))
-		if _, err := mail.ParseAddress(signupData.Email); err != nil {
+		registerData.Email = strings.TrimSpace(strings.ToLower(registerData.Email))
+		if _, err := mail.ParseAddress(registerData.Email); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "รูปแบบ Email ไม่ถูกต้อง"})
 		}
-		if len(signupData.Password) < 8 {
+		if len(registerData.Password) < 8 {
 			return c.Status(400).JSON(fiber.Map{"error": "รหัสผ่านต้องมีความยาวอย่างน้อย 8 ตัวอักษร"})
 		}
 
@@ -42,7 +42,7 @@ func SignUp(db *sql.DB) fiber.Handler {
 			hasNumber  bool
 			hasSpecial bool
 		)
-		for _, char := range signupData.Password {
+		for _, char := range registerData.Password {
 			switch {
 			case unicode.IsUpper(char):
 				hasUpper = true
@@ -59,7 +59,7 @@ func SignUp(db *sql.DB) fiber.Handler {
 		}
 
 		// 3. Hash Password
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(signupData.Password), bcrypt.DefaultCost)
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(registerData.Password), bcrypt.DefaultCost)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": "ไม่สามารถเข้ารหัสผ่านได้"})
 		}
@@ -71,9 +71,9 @@ func SignUp(db *sql.DB) fiber.Handler {
 		ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
 		defer cancel()
 
-		query := `INSERT INTO public.auth_users (public_user_id, email, password) 
+		query := `INSERT INTO public.auth_users (public_user_id, email, password_hash) 
 		          VALUES ($1, $2, $3)`
-		_, err = db.ExecContext(ctx, query, publicID, signupData.Email, string(hashedPassword))
+		_, err = db.ExecContext(ctx, query, publicID, registerData.Email, string(hashedPassword))
 
 		if err != nil {
 			fmt.Println("Database Error:", err) // พิมพ์ Error ออกมาดูที่หน้าจอ Terminal
@@ -92,7 +92,7 @@ func SignUp(db *sql.DB) fiber.Handler {
 		// 6. ส่งข้อมูลกลับ
 		response := models.UserPublic{
 			PublicUserID: publicID,
-			Email:        signupData.Email,
+			Email:        registerData.Email,
 		}
 		return c.Status(201).JSON(response)
 	}
