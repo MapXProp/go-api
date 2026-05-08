@@ -9,9 +9,12 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	_ = godotenv.Load()
+
 	// 1. เริ่มต้นสร้างแอป API
 	app := fiber.New()
 	allowedOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
