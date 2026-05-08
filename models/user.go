@@ -29,11 +29,20 @@ type UserPublic struct {
 }
 
 type UserLoginResponse struct {
-	Token        string `json:"token"`
+	Token        string `json:"token,omitempty"`
 	TokenType    string `json:"token_type"`
 	ExpiresIn    int64  `json:"expires_in"`
 	PublicUserID string `json:"public_user_id"`
 	Name         string `json:"name"`
 	Surname      string `json:"surname"`
 	Email        string `json:"email"`
+}
+
+type UserMeResponse struct {
+	Authenticated bool       `json:"authenticated"`
+	User          UserPublic `json:"user"`
+}
+
+type UserLogoutResponse struct {
+	Success bool `json:"success"`
 }

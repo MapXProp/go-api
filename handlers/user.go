@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
@@ -19,6 +20,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
+)
+
+const (
+	accessCookieName  = "mapxprop_access"
+	refreshCookieName = "mapxprop_refresh"
+	accessTokenTTL    = 15 * time.Minute
+	refreshTokenTTL   = 30 * 24 * time.Hour
 )
 
 // Register เป็นฟังก์ชันสำหรับลงทะเบียนผู้ใช้ใหม่
@@ -197,16 +205,37 @@ func UserLogin(db *sql.DB) fiber.Handler {
 			return c.Status(500).JSON(fiber.Map{"error": "ไม่สามารถเข้าสู่ระบบได้ในขณะนี้"})
 		}
 
-		expiresIn := int64((24 * time.Hour).Seconds())
-		token, err := createAccessToken(id, publicUserID, email, expiresIn)
+		expiresIn := int64(accessTokenTTL.Seconds())
+		tokenID := uuid.New().String()
+		expiresAt := time.Now().UTC().Add(accessTokenTTL)
+		refreshExpiresAt := time.Now().UTC().Add(refreshTokenTTL)
+		refreshToken, err := createOpaqueToken()
+		if err != nil {
+			fmt.Println("Refresh Token Error:", err)
+			return c.Status(500).JSON(fiber.Map{"error": "cannot create login session"})
+		}
+
+		_, err = db.ExecContext(ctx, `
+			INSERT INTO public.auth_sessions (
+				user_id, token_id, user_agent, ip_address, expires_at, refresh_token_hash, refresh_expires_at, last_seen_at
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+		`, id, tokenID, c.Get("User-Agent"), c.IP(), expiresAt, hashRefreshToken(refreshToken), refreshExpiresAt)
+		if err != nil {
+			fmt.Println("Session Error:", err)
+			return c.Status(500).JSON(fiber.Map{"error": "cannot create login session"})
+		}
+
+		token, err := createAccessToken(id, publicUserID, email, tokenID, expiresAt)
 		if err != nil {
 			fmt.Println("Token Error:", err)
 			return c.Status(500).JSON(fiber.Map{"error": "ไม่สามารถสร้าง token ได้"})
 		}
 
+		setAuthCookies(c, token, refreshToken, expiresAt, refreshExpiresAt)
+
 		return c.JSON(models.UserLoginResponse{
-			Token:        token,
-			TokenType:    "Bearer",
+			TokenType:    "Cookie",
 			ExpiresIn:    expiresIn,
 			PublicUserID: publicUserID,
 			Name:         name.String,
@@ -216,7 +245,7 @@ func UserLogin(db *sql.DB) fiber.Handler {
 	}
 }
 
-func createAccessToken(userID int64, publicUserID string, email string, expiresIn int64) (string, error) {
+func createAccessToken(userID int64, publicUserID string, email string, tokenID string, expiresAt time.Time) (string, error) {
 	now := time.Now().UTC()
 	header := map[string]string{
 		"alg": "HS256",
@@ -226,8 +255,9 @@ func createAccessToken(userID int64, publicUserID string, email string, expiresI
 		"sub":   publicUserID,
 		"uid":   userID,
 		"email": email,
+		"jti":   tokenID,
 		"iat":   now.Unix(),
-		"exp":   now.Add(time.Duration(expiresIn) * time.Second).Unix(),
+		"exp":   expiresAt.Unix(),
 	}
 
 	encodedHeader, err := encodeJWTPart(header)
@@ -269,6 +299,363 @@ func tokenSecret() string {
 }
 
 // GetUsers เป็นฟังก์ชันสำหรับดึงข้อมูล User ทั้งหมด
+func refreshTokenSecret() string {
+	if secret := os.Getenv("REFRESH_TOKEN_SECRET"); secret != "" {
+		return secret
+	}
+	return tokenSecret()
+}
+
+func createOpaqueToken() (string, error) {
+	value := make([]byte, 32)
+	if _, err := rand.Read(value); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(value), nil
+}
+
+func hashRefreshToken(token string) string {
+	mac := hmac.New(sha256.New, []byte(refreshTokenSecret()))
+	_, _ = mac.Write([]byte(token))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func secureAuthCookies() bool {
+	return strings.EqualFold(os.Getenv("COOKIE_SECURE"), "true") ||
+		strings.EqualFold(os.Getenv("APP_ENV"), "production") ||
+		strings.EqualFold(os.Getenv("GO_ENV"), "production")
+}
+
+func setAuthCookies(c *fiber.Ctx, accessToken string, refreshToken string, accessExpiresAt time.Time, refreshExpiresAt time.Time) {
+	secure := secureAuthCookies()
+	c.Cookie(&fiber.Cookie{
+		Name:     accessCookieName,
+		Value:    accessToken,
+		Path:     "/",
+		Expires:  accessExpiresAt,
+		HTTPOnly: true,
+		Secure:   secure,
+		SameSite: "Lax",
+	})
+	c.Cookie(&fiber.Cookie{
+		Name:     refreshCookieName,
+		Value:    refreshToken,
+		Path:     "/",
+		Expires:  refreshExpiresAt,
+		HTTPOnly: true,
+		Secure:   secure,
+		SameSite: "Lax",
+	})
+}
+
+func clearAuthCookies(c *fiber.Ctx) {
+	expiredAt := time.Now().UTC().Add(-time.Hour)
+	secure := secureAuthCookies()
+	for _, name := range []string{accessCookieName, refreshCookieName} {
+		c.Cookie(&fiber.Cookie{
+			Name:     name,
+			Value:    "",
+			Path:     "/",
+			Expires:  expiredAt,
+			MaxAge:   -1,
+			HTTPOnly: true,
+			Secure:   secure,
+			SameSite: "Lax",
+		})
+	}
+}
+
+type accessTokenClaims struct {
+	Sub   string `json:"sub"`
+	UID   int64  `json:"uid"`
+	Email string `json:"email"`
+	JTI   string `json:"jti"`
+	IAT   int64  `json:"iat"`
+	Exp   int64  `json:"exp"`
+}
+
+func validateAccessToken(token string) (*accessTokenClaims, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("invalid token format")
+	}
+
+	signingInput := parts[0] + "." + parts[1]
+	mac := hmac.New(sha256.New, []byte(tokenSecret()))
+	_, _ = mac.Write([]byte(signingInput))
+
+	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		return nil, fmt.Errorf("invalid token signature")
+	}
+	if !hmac.Equal(signature, mac.Sum(nil)) {
+		return nil, fmt.Errorf("invalid token signature")
+	}
+
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid token payload")
+	}
+
+	var claims accessTokenClaims
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return nil, fmt.Errorf("invalid token claims")
+	}
+	if claims.Sub == "" || claims.UID == 0 || claims.JTI == "" || claims.Exp == 0 {
+		return nil, fmt.Errorf("missing token claims")
+	}
+	if time.Now().UTC().Unix() >= claims.Exp {
+		return nil, fmt.Errorf("token expired")
+	}
+
+	return &claims, nil
+}
+
+func bearerToken(c *fiber.Ctx) string {
+	authHeader := strings.TrimSpace(c.Get("Authorization"))
+	if authHeader == "" {
+		return ""
+	}
+	if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+		return strings.TrimSpace(authHeader[7:])
+	}
+	return authHeader
+}
+
+func accessTokenFromRequest(c *fiber.Ctx) string {
+	if token := bearerToken(c); token != "" {
+		return token
+	}
+	return strings.TrimSpace(c.Cookies(accessCookieName))
+}
+
+func verifyActiveSession(ctx context.Context, db *sql.DB, claims *accessTokenClaims) error {
+	var exists bool
+	err := db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM public.auth_sessions
+			WHERE token_id = $1
+			  AND user_id = $2
+			  AND revoked_at IS NULL
+			  AND expires_at > now()
+		)
+	`, claims.JTI, claims.UID).Scan(&exists)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("session inactive")
+	}
+	return nil
+}
+
+func UserRefresh(db *sql.DB) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		refreshToken := strings.TrimSpace(c.Cookies(refreshCookieName))
+		if refreshToken == "" {
+			clearAuthCookies(c)
+			return c.Status(401).JSON(fiber.Map{"error": "missing refresh session"})
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+		defer cancel()
+
+		var (
+			sessionID    int64
+			id           int64
+			publicUserID string
+			email        string
+			name         sql.NullString
+			surname      sql.NullString
+			isActive     bool
+		)
+
+		err := db.QueryRowContext(ctx, `
+			SELECT s.id, u.id, u.public_user_id::text, u.email, u.name, u.surname, COALESCE(u.is_active, true)
+			FROM public.auth_sessions s
+			JOIN public.auth_users u ON u.id = s.user_id
+			WHERE s.refresh_token_hash = $1
+			  AND s.revoked_at IS NULL
+			  AND s.refresh_expires_at > now()
+			  AND u.deleted_at IS NULL
+			LIMIT 1
+		`, hashRefreshToken(refreshToken)).Scan(
+			&sessionID,
+			&id,
+			&publicUserID,
+			&email,
+			&name,
+			&surname,
+			&isActive,
+		)
+		if err == sql.ErrNoRows {
+			clearAuthCookies(c)
+			return c.Status(401).JSON(fiber.Map{"error": "refresh session expired"})
+		}
+		if err != nil {
+			fmt.Println("Refresh Session Error:", err)
+			return c.Status(500).JSON(fiber.Map{"error": "cannot refresh session"})
+		}
+		if !isActive {
+			clearAuthCookies(c)
+			return c.Status(403).JSON(fiber.Map{"error": "user account is inactive"})
+		}
+
+		tokenID := uuid.New().String()
+		expiresAt := time.Now().UTC().Add(accessTokenTTL)
+		refreshExpiresAt := time.Now().UTC().Add(refreshTokenTTL)
+		nextRefreshToken, err := createOpaqueToken()
+		if err != nil {
+			fmt.Println("Refresh Token Error:", err)
+			return c.Status(500).JSON(fiber.Map{"error": "cannot refresh session"})
+		}
+
+		_, err = db.ExecContext(ctx, `
+			UPDATE public.auth_sessions
+			SET token_id = $1,
+			    expires_at = $2,
+			    refresh_token_hash = $3,
+			    refresh_expires_at = $4,
+			    last_seen_at = now(),
+			    updated_at = now()
+			WHERE id = $5
+			  AND revoked_at IS NULL
+		`, tokenID, expiresAt, hashRefreshToken(nextRefreshToken), refreshExpiresAt, sessionID)
+		if err != nil {
+			fmt.Println("Refresh Update Error:", err)
+			return c.Status(500).JSON(fiber.Map{"error": "cannot refresh session"})
+		}
+
+		accessToken, err := createAccessToken(id, publicUserID, email, tokenID, expiresAt)
+		if err != nil {
+			fmt.Println("Token Error:", err)
+			return c.Status(500).JSON(fiber.Map{"error": "cannot refresh session"})
+		}
+
+		setAuthCookies(c, accessToken, nextRefreshToken, expiresAt, refreshExpiresAt)
+
+		return c.JSON(models.UserMeResponse{
+			Authenticated: true,
+			User: models.UserPublic{
+				PublicUserID: publicUserID,
+				Name:         name.String,
+				Surname:      surname.String,
+				Email:        email,
+			},
+		})
+	}
+}
+
+func UserLogout(db *sql.DB) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+		defer cancel()
+
+		token := accessTokenFromRequest(c)
+		if token != "" {
+			if claims, err := validateAccessToken(token); err == nil {
+				if _, err := db.ExecContext(ctx, `
+					UPDATE public.auth_sessions
+					SET revoked_at = now(),
+					    updated_at = now()
+					WHERE token_id = $1
+					  AND user_id = $2
+					  AND revoked_at IS NULL
+				`, claims.JTI, claims.UID); err != nil {
+					fmt.Println("Logout Session Error:", err)
+					clearAuthCookies(c)
+					return c.Status(500).JSON(fiber.Map{"error": "cannot logout session"})
+				}
+			}
+		}
+
+		refreshToken := strings.TrimSpace(c.Cookies(refreshCookieName))
+		if refreshToken != "" {
+			if _, err := db.ExecContext(ctx, `
+				UPDATE public.auth_sessions
+				SET revoked_at = now(),
+				    updated_at = now()
+				WHERE refresh_token_hash = $1
+				  AND revoked_at IS NULL
+			`, hashRefreshToken(refreshToken)); err != nil {
+				fmt.Println("Logout Refresh Session Error:", err)
+				clearAuthCookies(c)
+				return c.Status(500).JSON(fiber.Map{"error": "cannot logout session"})
+			}
+		}
+
+		clearAuthCookies(c)
+		return c.JSON(models.UserLogoutResponse{Success: true})
+	}
+}
+
+func GetMe(db *sql.DB) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		token := accessTokenFromRequest(c)
+		if token == "" {
+			return c.Status(401).JSON(fiber.Map{"error": "missing authorization token"})
+		}
+
+		claims, err := validateAccessToken(token)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": "invalid or expired token"})
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+		defer cancel()
+
+		if err := verifyActiveSession(ctx, db, claims); err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": "session revoked or expired"})
+		}
+
+		var (
+			id           int64
+			publicUserID string
+			email        string
+			name         sql.NullString
+			surname      sql.NullString
+			isActive     bool
+		)
+
+		err = db.QueryRowContext(ctx, `
+			SELECT id, public_user_id::text, email, name, surname, COALESCE(is_active, true)
+			FROM public.auth_users
+			WHERE id = $1
+			  AND public_user_id::text = $2
+			  AND deleted_at IS NULL
+			LIMIT 1
+		`, claims.UID, claims.Sub).Scan(
+			&id,
+			&publicUserID,
+			&email,
+			&name,
+			&surname,
+			&isActive,
+		)
+		if err == sql.ErrNoRows {
+			return c.Status(401).JSON(fiber.Map{"error": "user not found"})
+		}
+		if err != nil {
+			fmt.Println("Database Error:", err)
+			return c.Status(500).JSON(fiber.Map{"error": "cannot verify login status"})
+		}
+		if !isActive {
+			return c.Status(403).JSON(fiber.Map{"error": "user account is inactive"})
+		}
+
+		return c.JSON(models.UserMeResponse{
+			Authenticated: true,
+			User: models.UserPublic{
+				PublicUserID: publicUserID,
+				Name:         name.String,
+				Surname:      surname.String,
+				Email:        email,
+			},
+		})
+	}
+}
+
 func GetUsers(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		rows, err := db.Query("SELECT id, public_user_id, name, surname,email FROM public.auth_users")
