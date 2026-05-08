@@ -321,8 +321,11 @@ func hashRefreshToken(token string) string {
 }
 
 func secureAuthCookies() bool {
-	return strings.EqualFold(os.Getenv("COOKIE_SECURE"), "true") ||
-		strings.EqualFold(os.Getenv("APP_ENV"), "production") ||
+	cookieSecure := strings.TrimSpace(os.Getenv("COOKIE_SECURE"))
+	if cookieSecure != "" {
+		return strings.EqualFold(cookieSecure, "true")
+	}
+	return strings.EqualFold(os.Getenv("APP_ENV"), "production") ||
 		strings.EqualFold(os.Getenv("GO_ENV"), "production")
 }
 
