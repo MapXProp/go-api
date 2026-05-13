@@ -44,6 +44,17 @@ type oauthUser struct {
 	IsActive     bool
 }
 
+type socialAuthProfile struct {
+	Provider       string
+	ProviderUserID string
+	Email          string
+	EmailVerified  bool
+	DisplayName    string
+	GivenName      string
+	FamilyName     string
+	AvatarURL      string
+}
+
 func GoogleLoginStart() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		config, err := googleOAuthConfig()
@@ -126,7 +137,16 @@ func GoogleLoginCallback(db *sql.DB) fiber.Handler {
 			return redirectOAuthError(c, "google_token")
 		}
 
-		user, err := findOrCreateOAuthUser(ctx, db, claims)
+		user, err := findOrCreateOAuthUser(ctx, db, &socialAuthProfile{
+			Provider:       googleProvider,
+			ProviderUserID: claims.Subject,
+			Email:          claims.Email,
+			EmailVerified:  claims.EmailVerified,
+			DisplayName:    claims.Name,
+			GivenName:      claims.GivenName,
+			FamilyName:     claims.FamilyName,
+			AvatarURL:      claims.Picture,
+		})
 		if err != nil {
 			fmt.Println("Google User Link Error:", err)
 			return redirectOAuthError(c, "google_account")
@@ -193,7 +213,14 @@ func verifyGoogleIDToken(ctx context.Context, rawIDToken string, clientID string
 	return &claims, nil
 }
 
-func findOrCreateOAuthUser(ctx context.Context, db *sql.DB, claims *googleIDClaims) (*oauthUser, error) {
+func findOrCreateOAuthUser(ctx context.Context, db *sql.DB, profile *socialAuthProfile) (*oauthUser, error) {
+	profile.Email = strings.TrimSpace(strings.ToLower(profile.Email))
+	profile.Provider = strings.TrimSpace(strings.ToLower(profile.Provider))
+	profile.ProviderUserID = strings.TrimSpace(profile.ProviderUserID)
+	if profile.Provider == "" || profile.ProviderUserID == "" || profile.Email == "" {
+		return nil, errors.New("missing social account identity")
+	}
+
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -204,9 +231,9 @@ func findOrCreateOAuthUser(ctx context.Context, db *sql.DB, claims *googleIDClai
 		}
 	}()
 
-	user, err := findOAuthUserByProvider(ctx, tx, googleProvider, claims.Subject)
+	user, err := findOAuthUserByProvider(ctx, tx, profile.Provider, profile.ProviderUserID)
 	if err == nil {
-		err = updateOAuthLogin(ctx, tx, user.ID, googleProvider, claims)
+		err = updateOAuthLogin(ctx, tx, user.ID, profile)
 		if err != nil {
 			return nil, err
 		}
@@ -216,9 +243,9 @@ func findOrCreateOAuthUser(ctx context.Context, db *sql.DB, claims *googleIDClai
 		return nil, err
 	}
 
-	user, err = findOAuthUserByEmail(ctx, tx, claims.Email)
+	user, err = findOAuthUserByEmail(ctx, tx, profile.Email)
 	if err == nil {
-		err = linkOAuthAccount(ctx, tx, user.ID, googleProvider, claims)
+		err = linkOAuthAccount(ctx, tx, user.ID, profile)
 		if err != nil {
 			return nil, err
 		}
@@ -228,11 +255,11 @@ func findOrCreateOAuthUser(ctx context.Context, db *sql.DB, claims *googleIDClai
 		return nil, err
 	}
 
-	user, err = createOAuthUser(ctx, tx, googleProvider, claims)
+	user, err = createOAuthUser(ctx, tx, profile)
 	if err != nil {
 		return nil, err
 	}
-	if err = linkOAuthAccount(ctx, tx, user.ID, googleProvider, claims); err != nil {
+	if err = linkOAuthAccount(ctx, tx, user.ID, profile); err != nil {
 		return nil, err
 	}
 
@@ -279,12 +306,12 @@ func findOAuthUserByEmail(ctx context.Context, tx *sql.Tx, email string) (*oauth
 	return &user, err
 }
 
-func createOAuthUser(ctx context.Context, tx *sql.Tx, provider string, claims *googleIDClaims) (*oauthUser, error) {
+func createOAuthUser(ctx context.Context, tx *sql.Tx, profile *socialAuthProfile) (*oauthUser, error) {
 	publicUserID := uuid.New().String()
-	name := strings.TrimSpace(claims.GivenName)
-	surname := strings.TrimSpace(claims.FamilyName)
+	name := strings.TrimSpace(profile.GivenName)
+	surname := strings.TrimSpace(profile.FamilyName)
 	if name == "" && surname == "" {
-		name, surname = splitDisplayName(claims.Name)
+		name, surname = splitDisplayName(profile.DisplayName)
 	}
 
 	var user oauthUser
@@ -295,7 +322,7 @@ func createOAuthUser(ctx context.Context, tx *sql.Tx, provider string, claims *g
 		)
 		VALUES ($1, $2, $3, $4, true, $5, $6, $7, now(), now(), now())
 		RETURNING id, public_user_id::text, email, name, surname, COALESCE(is_active, true)
-	`, publicUserID, claims.Email, nullString(name), nullString(surname), claims.EmailVerified, provider, claims.Subject).Scan(
+	`, publicUserID, profile.Email, nullString(name), nullString(surname), profile.EmailVerified, profile.Provider, profile.ProviderUserID).Scan(
 		&user.ID,
 		&user.PublicUserID,
 		&user.Email,
@@ -306,7 +333,7 @@ func createOAuthUser(ctx context.Context, tx *sql.Tx, provider string, claims *g
 	return &user, err
 }
 
-func linkOAuthAccount(ctx context.Context, tx *sql.Tx, userID int64, provider string, claims *googleIDClaims) error {
+func linkOAuthAccount(ctx context.Context, tx *sql.Tx, userID int64, profile *socialAuthProfile) error {
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO public.auth_social_accounts (
 			user_id, provider, provider_user_id, email, email_verified, display_name, avatar_url, last_login_at
@@ -321,7 +348,7 @@ func linkOAuthAccount(ctx context.Context, tx *sql.Tx, userID int64, provider st
 			avatar_url = EXCLUDED.avatar_url,
 			last_login_at = now(),
 			updated_at = now()
-	`, userID, provider, claims.Subject, claims.Email, claims.EmailVerified, claims.Name, claims.Picture)
+	`, userID, profile.Provider, profile.ProviderUserID, profile.Email, profile.EmailVerified, profile.DisplayName, profile.AvatarURL)
 	if err != nil {
 		return err
 	}
@@ -329,16 +356,16 @@ func linkOAuthAccount(ctx context.Context, tx *sql.Tx, userID int64, provider st
 	_, err = tx.ExecContext(ctx, `
 		UPDATE public.auth_users
 		SET last_login_at = now(),
-		    email_verified_at = COALESCE(email_verified_at, now()),
-		    is_verified = true,
+		    email_verified_at = CASE WHEN $2 THEN COALESCE(email_verified_at, now()) ELSE email_verified_at END,
+		    is_verified = CASE WHEN $2 THEN true ELSE is_verified END,
 		    updated_at = now()
 		WHERE id = $1
-	`, userID)
+	`, userID, profile.EmailVerified)
 	return err
 }
 
-func updateOAuthLogin(ctx context.Context, tx *sql.Tx, userID int64, provider string, claims *googleIDClaims) error {
-	if err := linkOAuthAccount(ctx, tx, userID, provider, claims); err != nil {
+func updateOAuthLogin(ctx context.Context, tx *sql.Tx, userID int64, profile *socialAuthProfile) error {
+	if err := linkOAuthAccount(ctx, tx, userID, profile); err != nil {
 		return err
 	}
 	return nil
@@ -385,8 +412,12 @@ func setOAuthCookie(c *fiber.Ctx, name string, value string, expiresAt time.Time
 }
 
 func clearOAuthCookies(c *fiber.Ctx) {
+	clearNamedOAuthCookies(c, oauthStateCookieName, oauthReturnToCookieName)
+}
+
+func clearNamedOAuthCookies(c *fiber.Ctx, names ...string) {
 	expiredAt := time.Now().UTC().Add(-time.Hour)
-	for _, name := range []string{oauthStateCookieName, oauthReturnToCookieName} {
+	for _, name := range names {
 		c.Cookie(&fiber.Cookie{
 			Name:     name,
 			Value:    "",
