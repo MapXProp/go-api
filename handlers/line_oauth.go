@@ -205,16 +205,18 @@ func verifyLineIDToken(ctx context.Context, rawIDToken string, clientID string, 
 	if claims.ExpiresAt > 0 && time.Now().UTC().Unix() >= claims.ExpiresAt {
 		return nil, errors.New("line id token expired")
 	}
-	if strings.TrimSpace(claims.Email) == "" {
-		return nil, errors.New("line account has no email permission")
+	email := strings.TrimSpace(strings.ToLower(claims.Email))
+	emailVerified := email != ""
+	if email == "" {
+		email = syntheticSocialEmail(lineProvider, claims.Subject)
 	}
 
 	name, surname := splitDisplayName(claims.Name)
 	return &socialAuthProfile{
 		Provider:       lineProvider,
 		ProviderUserID: claims.Subject,
-		Email:          claims.Email,
-		EmailVerified:  true,
+		Email:          email,
+		EmailVerified:  emailVerified,
 		DisplayName:    claims.Name,
 		GivenName:      name,
 		FamilyName:     surname,
@@ -238,4 +240,17 @@ func lineAudienceMatches(rawAudience json.RawMessage, clientID string) bool {
 		}
 	}
 	return false
+}
+
+func syntheticSocialEmail(provider string, providerUserID string) string {
+	var builder strings.Builder
+	for _, value := range strings.ToLower(providerUserID) {
+		if (value >= 'a' && value <= 'z') || (value >= '0' && value <= '9') {
+			builder.WriteRune(value)
+		}
+	}
+	if builder.Len() == 0 {
+		builder.WriteString("unknown")
+	}
+	return provider + "+" + builder.String() + "@social.mapxprop.local"
 }
