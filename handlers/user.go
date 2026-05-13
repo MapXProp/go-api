@@ -84,9 +84,28 @@ func UserRegister(db *sql.DB) fiber.Handler {
 		ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
 		defer cancel()
 
-		query := `INSERT INTO public.auth_users (public_user_id, email, password_hash) 
-		          VALUES ($1, $2, $3)`
-		_, err = db.ExecContext(ctx, query, publicID, registerData.Email, string(hashedPassword))
+		var (
+			id              int64
+			createdPublicID string
+			email           string
+			name            sql.NullString
+			surname         sql.NullString
+		)
+
+		query := `
+			INSERT INTO public.auth_users (
+				public_user_id, email, password_hash, provider, is_active, is_verified,
+				password_changed_at, last_login_at, updated_at
+			)
+			VALUES ($1, $2, $3, 'email', true, false, now(), now(), now())
+			RETURNING id, public_user_id::text, email, name, surname`
+		err = db.QueryRowContext(ctx, query, publicID, registerData.Email, string(hashedPassword)).Scan(
+			&id,
+			&createdPublicID,
+			&email,
+			&name,
+			&surname,
+		)
 
 		if err != nil {
 			fmt.Println("Database Error:", err) // พิมพ์ Error ออกมาดูที่หน้าจอ Terminal
@@ -103,11 +122,19 @@ func UserRegister(db *sql.DB) fiber.Handler {
 		}
 
 		// 6. ส่งข้อมูลกลับ
-		response := models.UserPublic{
-			PublicUserID: publicID,
-			Email:        registerData.Email,
+		if err := issueSessionCookies(ctx, db, c, id, createdPublicID, email); err != nil {
+			fmt.Println("Register Session Error:", err)
+			return c.Status(500).JSON(fiber.Map{"error": "cannot create signup session"})
 		}
-		return c.Status(201).JSON(response)
+
+		return c.Status(201).JSON(models.UserLoginResponse{
+			TokenType:    "Cookie",
+			ExpiresIn:    int64(accessTokenTTL.Seconds()),
+			PublicUserID: createdPublicID,
+			Name:         name.String,
+			Surname:      surname.String,
+			Email:        email,
+		})
 	}
 }
 
