@@ -13,6 +13,8 @@ func SetupRoutes(app *fiber.App, db *sql.DB) {
 	api.Get("/users", handlers.GetUsers(db))
 	api.Post("/userRegister", handlers.UserRegister(db))
 	api.Post("/userLogin", handlers.UserLogin(db))
+	api.Get("/auth/google/start", handlers.GoogleLoginStart())
+	api.Get("/auth/google/callback", handlers.GoogleLoginCallback(db))
 	api.Post("/refresh", handlers.UserRefresh(db))
 	api.Post("/logout", handlers.UserLogout(db))
 	api.Get("/me", handlers.GetMe(db))

@@ -32,6 +32,25 @@ func EnsureAuthSchema(db *sql.DB) {
 		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_refresh_token_hash
 			ON public.auth_sessions(refresh_token_hash)
 			WHERE revoked_at IS NULL`,
+		`CREATE TABLE IF NOT EXISTS public.auth_social_accounts (
+			id bigserial PRIMARY KEY,
+			user_id bigint NOT NULL REFERENCES public.auth_users(id) ON DELETE CASCADE,
+			provider text NOT NULL,
+			provider_user_id text NOT NULL,
+			email text,
+			email_verified boolean NOT NULL DEFAULT false,
+			display_name text,
+			avatar_url text,
+			last_login_at timestamp with time zone,
+			created_at timestamp with time zone NOT NULL DEFAULT now(),
+			updated_at timestamp with time zone NOT NULL DEFAULT now(),
+			UNIQUE (provider, provider_user_id),
+			UNIQUE (provider, user_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_social_accounts_user_id
+			ON public.auth_social_accounts(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_social_accounts_email
+			ON public.auth_social_accounts(lower(email))`,
 	}
 
 	for _, statement := range statements {
