@@ -236,7 +236,7 @@ func sendEmailVerificationEmail(ctx context.Context, recipient string, token str
 			<h2 style="margin: 0 0 12px;">ยืนยันอีเมล MapxProp ของคุณ</h2>
 			<p>กรุณายืนยันอีเมลนี้สำหรับบัญชี MapxProp ของคุณ</p>
 			<p>
-				<a href="%s" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:600;">
+				<a href="%s" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:13px 20px;border-radius:10px;font-weight:700;box-shadow:0 6px 16px rgba(37,99,235,0.24);">
 					ยืนยันอีเมล
 				</a>
 			</p>

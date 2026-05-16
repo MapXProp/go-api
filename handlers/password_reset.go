@@ -280,7 +280,7 @@ func sendPasswordResetEmail(ctx context.Context, recipient string, token string)
 			<h2 style="margin: 0 0 12px;">ตั้งรหัสผ่าน MapxProp ใหม่</h2>
 			<p>เราได้รับคำขอตั้งรหัสผ่านใหม่สำหรับบัญชี MapxProp ของคุณ</p>
 			<p>
-				<a href="%s" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:600;">
+				<a href="%s" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:13px 20px;border-radius:10px;font-weight:700;box-shadow:0 6px 16px rgba(37,99,235,0.24);">
 					ตั้งรหัสผ่านใหม่
 				</a>
 			</p>
