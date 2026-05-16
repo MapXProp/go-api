@@ -276,20 +276,29 @@ func sendPasswordResetEmail(ctx context.Context, recipient string, token string)
 	escapedResetURL := html.EscapeString(resetURL)
 
 	htmlBody := fmt.Sprintf(`
-		<div style="font-family: Arial, sans-serif; color: #111827; font-size: 16px; line-height: 1.7;">
-			<h2 style="margin: 0 0 12px;">ตั้งรหัสผ่าน MapxProp ใหม่</h2>
-			<p>เราได้รับคำขอตั้งรหัสผ่านใหม่สำหรับบัญชี MapxProp ของคุณ</p>
-			<p>
-				<a href="%s" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:13px 20px;border-radius:10px;font-weight:700;box-shadow:0 6px 16px rgba(37,99,235,0.24);">
-					ตั้งรหัสผ่านใหม่
-				</a>
-			</p>
-			<p>ลิงก์นี้จะหมดอายุภายใน 30 นาที หากคุณไม่ได้เป็นผู้ขอเปลี่ยนรหัสผ่าน สามารถละเว้นอีเมลฉบับนี้ได้</p>
-			<hr style="border:none;border-top:1px solid #e5e7eb;margin:22px 0;" />
-			<h3 style="margin: 0 0 10px;">Reset your MapxProp password</h3>
-			<p>We received a request to reset the password for your MapxProp account.</p>
-			<p>This link expires in 30 minutes. If you did not request this, you can ignore this email.</p>
-			<p style="font-size: 14px; color: #6b7280; line-height: 1.6;">%s</p>
+		<div style="margin:0;padding:32px 16px;background:#f6f8fb;font-family:Arial,sans-serif;color:#111827;">
+			<div style="max-width:560px;margin:0 auto;">
+				<div style="text-align:center;margin-bottom:18px;font-size:28px;font-weight:800;letter-spacing:0;">
+					<span style="color:#e1843b;">Map</span><span style="color:#111827;">x</span><span style="color:#2563eb;">Prop</span>
+				</div>
+				<div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;padding:32px 28px;box-shadow:0 12px 32px rgba(15,23,42,0.08);">
+					<div style="text-align:center;">
+						<h2 style="margin:0 0 12px;font-size:24px;line-height:1.35;color:#111827;">ตั้งรหัสผ่าน MapxProp ใหม่</h2>
+						<p style="margin:0 auto 22px;max-width:420px;font-size:16px;line-height:1.7;color:#374151;">เราได้รับคำขอตั้งรหัสผ่านใหม่สำหรับบัญชี MapxProp ของคุณ</p>
+						<a href="%s" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:13px 24px;border-radius:10px;font-size:16px;font-weight:700;box-shadow:0 6px 16px rgba(37,99,235,0.24);">
+							ตั้งรหัสผ่านใหม่
+						</a>
+					</div>
+					<p style="margin:24px 0 0;font-size:15px;line-height:1.7;color:#4b5563;text-align:center;">ลิงก์นี้จะหมดอายุภายใน 30 นาที หากคุณไม่ได้เป็นผู้ขอเปลี่ยนรหัสผ่าน สามารถละเว้นอีเมลฉบับนี้ได้</p>
+					<hr style="border:none;border-top:1px solid #e5e7eb;margin:26px 0;" />
+					<div style="text-align:center;">
+						<h3 style="margin:0 0 10px;font-size:18px;line-height:1.4;color:#111827;">Reset your MapxProp password</h3>
+						<p style="margin:0 auto 10px;max-width:430px;font-size:15px;line-height:1.7;color:#4b5563;">We received a request to reset the password for your MapxProp account.</p>
+						<p style="margin:0 auto;max-width:430px;font-size:15px;line-height:1.7;color:#4b5563;">This link expires in 30 minutes. If you did not request this, you can ignore this email.</p>
+					</div>
+				</div>
+				<p style="margin:18px auto 0;max-width:520px;text-align:center;font-size:13px;line-height:1.6;color:#6b7280;word-break:break-all;">%s</p>
+			</div>
 		</div>
 	`, escapedResetURL, escapedResetURL)
 
