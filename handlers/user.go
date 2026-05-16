@@ -127,6 +127,12 @@ func UserRegister(db *sql.DB) fiber.Handler {
 			return c.Status(500).JSON(fiber.Map{"error": "cannot create signup session"})
 		}
 
+		verifyCtx, verifyCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer verifyCancel()
+		if err := issueEmailVerification(verifyCtx, db, id, email, c.Get("User-Agent"), c.IP()); err != nil {
+			fmt.Println("Register Email Verification Error:", err)
+		}
+
 		return c.Status(201).JSON(models.UserLoginResponse{
 			TokenType:    "Cookie",
 			ExpiresIn:    int64(accessTokenTTL.Seconds()),
