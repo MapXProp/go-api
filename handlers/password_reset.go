@@ -119,6 +119,14 @@ func RequestPasswordReset(db *sql.DB) fiber.Handler {
 
 		if err := sendPasswordResetEmail(ctx, dbEmail, token); err != nil {
 			fmt.Println("Password Reset Email Error:", err)
+			if _, cleanupErr := db.ExecContext(ctx, `
+				UPDATE public.auth_password_resets
+				SET used_at = now()
+				WHERE token_hash = $1
+				  AND used_at IS NULL
+			`, tokenHash); cleanupErr != nil {
+				fmt.Println("Password Reset Cleanup Error:", cleanupErr)
+			}
 			return c.Status(500).JSON(fiber.Map{"error": "Cannot send password reset email right now"})
 		}
 
