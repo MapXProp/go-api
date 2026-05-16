@@ -277,27 +277,32 @@ func sendPasswordResetEmail(ctx context.Context, recipient string, token string)
 
 	htmlBody := fmt.Sprintf(`
 		<div style="font-family: Arial, sans-serif; color: #111827; line-height: 1.6;">
-			<h2 style="margin: 0 0 12px;">Reset your MapxProp password</h2>
-			<p>We received a request to reset the password for your MapxProp account.</p>
+			<h2 style="margin: 0 0 12px;">ตั้งรหัสผ่าน MapxProp ใหม่</h2>
+			<p>เราได้รับคำขอตั้งรหัสผ่านใหม่สำหรับบัญชี MapxProp ของคุณ</p>
 			<p>
 				<a href="%s" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:600;">
-					Reset password
+					ตั้งรหัสผ่านใหม่
 				</a>
 			</p>
+			<p>ลิงก์นี้จะหมดอายุภายใน 30 นาที หากคุณไม่ได้เป็นผู้ขอเปลี่ยนรหัสผ่าน สามารถละเว้นอีเมลฉบับนี้ได้</p>
+			<hr style="border:none;border-top:1px solid #e5e7eb;margin:22px 0;" />
+			<h3 style="margin: 0 0 10px;">Reset your MapxProp password</h3>
+			<p>We received a request to reset the password for your MapxProp account.</p>
 			<p>This link expires in 30 minutes. If you did not request this, you can ignore this email.</p>
 			<p style="font-size: 13px; color: #6b7280;">%s</p>
 		</div>
 	`, escapedResetURL, escapedResetURL)
 
 	textBody := fmt.Sprintf(
-		"Reset your MapxProp password\n\nOpen this link to set a new password. It expires in 30 minutes:\n%s\n\nIf you did not request this, you can ignore this email.",
+		"ตั้งรหัสผ่าน MapxProp ใหม่\n\nเราได้รับคำขอตั้งรหัสผ่านใหม่สำหรับบัญชี MapxProp ของคุณ\nเปิดลิงก์นี้เพื่อตั้งรหัสผ่านใหม่ ลิงก์จะหมดอายุใน 30 นาที:\n%s\n\nหากคุณไม่ได้เป็นผู้ขอเปลี่ยนรหัสผ่าน สามารถละเว้นอีเมลฉบับนี้ได้\n\nReset your MapxProp password\n\nOpen this link to set a new password. It expires in 30 minutes:\n%s\n\nIf you did not request this, you can ignore this email.",
+		resetURL,
 		resetURL,
 	)
 
 	payload := resendEmailRequest{
 		From:    resendFromEmail(),
 		To:      []string{recipient},
-		Subject: "Reset your MapxProp password",
+		Subject: "ตั้งรหัสผ่านใหม่ | Reset your MapxProp password",
 		HTML:    htmlBody,
 		Text:    textBody,
 	}

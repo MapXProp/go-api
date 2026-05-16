@@ -233,27 +233,32 @@ func sendEmailVerificationEmail(ctx context.Context, recipient string, token str
 
 	htmlBody := fmt.Sprintf(`
 		<div style="font-family: Arial, sans-serif; color: #111827; line-height: 1.6;">
-			<h2 style="margin: 0 0 12px;">Verify your MapxProp email</h2>
-			<p>Please confirm this email address for your MapxProp account.</p>
+			<h2 style="margin: 0 0 12px;">ยืนยันอีเมล MapxProp ของคุณ</h2>
+			<p>กรุณายืนยันอีเมลนี้สำหรับบัญชี MapxProp ของคุณ</p>
 			<p>
 				<a href="%s" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:600;">
-					Verify email
+					ยืนยันอีเมล
 				</a>
 			</p>
+			<p>ลิงก์นี้จะหมดอายุภายใน 24 ชั่วโมง หากคุณไม่ได้สมัครบัญชีนี้ สามารถละเว้นอีเมลฉบับนี้ได้</p>
+			<hr style="border:none;border-top:1px solid #e5e7eb;margin:22px 0;" />
+			<h3 style="margin: 0 0 10px;">Verify your MapxProp email</h3>
+			<p>Please confirm this email address for your MapxProp account.</p>
 			<p>This link expires in 24 hours. If you did not create this account, you can ignore this email.</p>
 			<p style="font-size: 13px; color: #6b7280;">%s</p>
 		</div>
 	`, escapedVerifyURL, escapedVerifyURL)
 
 	textBody := fmt.Sprintf(
-		"Verify your MapxProp email\n\nOpen this link to verify your email address. It expires in 24 hours:\n%s\n\nIf you did not create this account, you can ignore this email.",
+		"ยืนยันอีเมล MapxProp ของคุณ\n\nกรุณาเปิดลิงก์นี้เพื่อยืนยันอีเมลของคุณ ลิงก์จะหมดอายุใน 24 ชั่วโมง:\n%s\n\nหากคุณไม่ได้สมัครบัญชีนี้ สามารถละเว้นอีเมลฉบับนี้ได้\n\nVerify your MapxProp email\n\nOpen this link to verify your email address. It expires in 24 hours:\n%s\n\nIf you did not create this account, you can ignore this email.",
+		verifyURL,
 		verifyURL,
 	)
 
 	return sendResendEmail(ctx, resendEmailRequest{
 		From:    resendFromEmail(),
 		To:      []string{recipient},
-		Subject: "Verify your MapxProp email",
+		Subject: "ยืนยันอีเมลของคุณ | Verify your MapxProp email",
 		HTML:    htmlBody,
 		Text:    textBody,
 	})
