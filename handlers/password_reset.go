@@ -276,7 +276,7 @@ func sendPasswordResetEmail(ctx context.Context, recipient string, token string)
 	escapedResetURL := html.EscapeString(resetURL)
 
 	htmlBody := fmt.Sprintf(`
-		<div style="font-family: Arial, sans-serif; color: #111827; line-height: 1.6;">
+		<div style="font-family: Arial, sans-serif; color: #111827; font-size: 16px; line-height: 1.7;">
 			<h2 style="margin: 0 0 12px;">ตั้งรหัสผ่าน MapxProp ใหม่</h2>
 			<p>เราได้รับคำขอตั้งรหัสผ่านใหม่สำหรับบัญชี MapxProp ของคุณ</p>
 			<p>
@@ -289,7 +289,7 @@ func sendPasswordResetEmail(ctx context.Context, recipient string, token string)
 			<h3 style="margin: 0 0 10px;">Reset your MapxProp password</h3>
 			<p>We received a request to reset the password for your MapxProp account.</p>
 			<p>This link expires in 30 minutes. If you did not request this, you can ignore this email.</p>
-			<p style="font-size: 13px; color: #6b7280;">%s</p>
+			<p style="font-size: 14px; color: #6b7280; line-height: 1.6;">%s</p>
 		</div>
 	`, escapedResetURL, escapedResetURL)
 

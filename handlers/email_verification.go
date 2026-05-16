@@ -232,7 +232,7 @@ func sendEmailVerificationEmail(ctx context.Context, recipient string, token str
 	escapedVerifyURL := html.EscapeString(verifyURL)
 
 	htmlBody := fmt.Sprintf(`
-		<div style="font-family: Arial, sans-serif; color: #111827; line-height: 1.6;">
+		<div style="font-family: Arial, sans-serif; color: #111827; font-size: 16px; line-height: 1.7;">
 			<h2 style="margin: 0 0 12px;">ยืนยันอีเมล MapxProp ของคุณ</h2>
 			<p>กรุณายืนยันอีเมลนี้สำหรับบัญชี MapxProp ของคุณ</p>
 			<p>
@@ -245,7 +245,7 @@ func sendEmailVerificationEmail(ctx context.Context, recipient string, token str
 			<h3 style="margin: 0 0 10px;">Verify your MapxProp email</h3>
 			<p>Please confirm this email address for your MapxProp account.</p>
 			<p>This link expires in 24 hours. If you did not create this account, you can ignore this email.</p>
-			<p style="font-size: 13px; color: #6b7280;">%s</p>
+			<p style="font-size: 14px; color: #6b7280; line-height: 1.6;">%s</p>
 		</div>
 	`, escapedVerifyURL, escapedVerifyURL)
 
