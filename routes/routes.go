@@ -26,6 +26,7 @@ func SetupRoutes(app *fiber.App, db *sql.DB) {
 	api.Post("/refresh", handlers.UserRefresh(db))
 	api.Post("/logout", handlers.UserLogout(db))
 	api.Get("/me", handlers.GetMe(db))
+	api.Post("/listings", handlers.CreateListing(db))
 
 	// api.Get("/properties", handlers.GetProperties(db))
 }
