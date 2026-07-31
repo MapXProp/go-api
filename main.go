@@ -32,6 +32,9 @@ func main() {
 	db := database.ConnectDB()
 	defer db.Close()
 	database.EnsureAuthSchema(db)
+	if err := database.RunMigrations(db); err != nil {
+		log.Fatal("Error: cannot run database migrations:", err)
+	}
 
 	// 3. ตั้งค่า Routes ทั้งหมด (รวมสารบัญ API ไว้ที่นี่)
 	// ตรงนี้จะไปเรียกใช้ทั้ง handlers และดึงข้อมูลจาก models ให้อัตโนมัติ

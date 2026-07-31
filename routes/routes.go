@@ -27,6 +27,9 @@ func SetupRoutes(app *fiber.App, db *sql.DB) {
 	api.Post("/logout", handlers.UserLogout(db))
 	api.Get("/me", handlers.GetMe(db))
 	api.Post("/listings", handlers.CreateListing(db))
+	api.Get("/search/interpret", handlers.InterpretPropertySearch(db))
+	api.Get("/search/suggestions", handlers.PropertySearchSuggestions(db))
+	api.Get("/properties/search", handlers.SearchProperties(db))
 
 	// api.Get("/properties", handlers.GetProperties(db))
 }
