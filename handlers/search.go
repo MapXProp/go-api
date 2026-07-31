@@ -48,6 +48,7 @@ type searchIntent struct {
 	PropertyGroups []string         `json:"property_groups"`
 	UseCases       []string         `json:"use_cases"`
 	OfferTypes     []string         `json:"offer_types"`
+	SpaceTypes     []string         `json:"space_types"`
 	Features       []string         `json:"features"`
 	Locations      []searchLocation `json:"locations"`
 	MinPrice       *float64         `json:"min_price,omitempty"`
@@ -216,6 +217,8 @@ func interpretSearch(query string, aliases []searchAlias, locations []searchLoca
 			intent.UseCases = appendUnique(intent.UseCases, alias.IntentValue)
 		case "offer_type":
 			intent.OfferTypes = appendUnique(intent.OfferTypes, alias.IntentValue)
+		case "space_type":
+			intent.SpaceTypes = appendUnique(intent.SpaceTypes, alias.IntentValue)
 		case "feature":
 			intent.Features = appendUnique(intent.Features, alias.IntentValue)
 		}
@@ -282,7 +285,7 @@ func interpretSearch(query string, aliases []searchAlias, locations []searchLoca
 	}
 	intent.FreeText = strings.TrimSpace(spacePattern.ReplaceAllString(remaining, " "))
 
-	understood := len(intent.PropertyTypes) + len(intent.PropertyGroups) + len(intent.UseCases) + len(intent.OfferTypes) + len(intent.Features) + len(intent.Locations)
+	understood := len(intent.PropertyTypes) + len(intent.PropertyGroups) + len(intent.UseCases) + len(intent.OfferTypes) + len(intent.SpaceTypes) + len(intent.Features) + len(intent.Locations)
 	if intent.MinPrice != nil || intent.MaxPrice != nil {
 		understood++
 	}
@@ -337,6 +340,7 @@ func buildSearchChips(intent searchIntent, aliases []searchAlias) []searchChip {
 	appendValues("property_group", intent.PropertyGroups)
 	appendValues("use_case", intent.UseCases)
 	appendValues("offer_type", intent.OfferTypes)
+	appendValues("space_type", intent.SpaceTypes)
 	for _, location := range intent.Locations {
 		label := location.NameTH
 		if intent.Locale == "en" {
@@ -510,11 +514,18 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		where := []string{"l.published_at IS NOT NULL"}
 		args := []any{}
 		arg := func(value any) string { args = append(args, value); return fmt.Sprintf("$%d", len(args)) }
+		categoryFilters := []string{}
 		if len(intent.PropertyTypes) > 0 {
-			where = append(where, "l.property_type_code = ANY("+arg(pq.Array(intent.PropertyTypes))+")")
+			categoryFilters = append(categoryFilters, "l.property_type_code = ANY("+arg(pq.Array(intent.PropertyTypes))+")")
 		}
 		if len(intent.PropertyGroups) > 0 {
-			where = append(where, "EXISTS (SELECT 1 FROM public.property_types pt WHERE pt.code=l.property_type_code AND pt.group_code = ANY("+arg(pq.Array(intent.PropertyGroups))+"))")
+			categoryFilters = append(categoryFilters, "EXISTS (SELECT 1 FROM public.property_types pt WHERE pt.code=l.property_type_code AND pt.group_code = ANY("+arg(pq.Array(intent.PropertyGroups))+"))")
+		}
+		if len(intent.SpaceTypes) > 0 {
+			categoryFilters = append(categoryFilters, "EXISTS (SELECT 1 FROM public.listing_business_details lbd WHERE lbd.listing_id=l.id AND lbd.venue_type_code = ANY("+arg(pq.Array(intent.SpaceTypes))+"))")
+		}
+		if len(categoryFilters) > 0 {
+			where = append(where, "("+strings.Join(categoryFilters, " OR ")+")")
 		}
 		if len(intent.UseCases) > 0 {
 			where = append(where, "EXISTS (SELECT 1 FROM public.listing_use_cases luc WHERE luc.listing_id=l.id AND luc.use_case_code = ANY("+arg(pq.Array(intent.UseCases))+"))")
@@ -624,5 +635,6 @@ func sortIntent(intent *searchIntent) {
 	sort.Strings(intent.PropertyGroups)
 	sort.Strings(intent.UseCases)
 	sort.Strings(intent.OfferTypes)
+	sort.Strings(intent.SpaceTypes)
 	sort.Strings(intent.Features)
 }

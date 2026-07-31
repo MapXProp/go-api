@@ -51,3 +51,21 @@ func TestInterpretSearchUsesQueryLanguageForChips(t *testing.T) {
 		t.Fatalf("chips: %#v", intent.Chips)
 	}
 }
+
+func TestInterpretSearchMarketStallAndMultiplePropertyTypes(t *testing.T) {
+	aliases := []searchAlias{
+		{Phrase: "ล็อกในตลาด", IntentType: "space_type", IntentValue: "market_stall", Locale: "th", Priority: 110},
+		{Phrase: "คอนโด", IntentType: "property_type", IntentValue: "condo", Locale: "th", Priority: 100},
+		{Phrase: "โกดัง", IntentType: "property_type", IntentValue: "warehouse", Locale: "th", Priority: 100},
+	}
+	intent := interpretSearch("ล็อกในตลาด คอนโด โกดัง", aliases, nil)
+	if len(intent.SpaceTypes) != 1 || intent.SpaceTypes[0] != "market_stall" {
+		t.Fatalf("space types: %#v", intent.SpaceTypes)
+	}
+	if len(intent.PropertyTypes) != 2 || intent.PropertyTypes[0] != "condo" || intent.PropertyTypes[1] != "warehouse" {
+		t.Fatalf("property types: %#v", intent.PropertyTypes)
+	}
+	if intent.FreeText != "" {
+		t.Fatalf("free text: %q", intent.FreeText)
+	}
+}
