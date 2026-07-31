@@ -36,3 +36,18 @@ func TestInterpretSearchPriceRangeAndThaiDigits(t *testing.T) {
 		t.Fatalf("max: %#v", intent.MaxPrice)
 	}
 }
+
+func TestInterpretSearchUsesQueryLanguageForChips(t *testing.T) {
+	aliases := []searchAlias{
+		{Phrase: "โกดัง", IntentType: "property_type", IntentValue: "warehouse", Locale: "th", Priority: 100},
+		{Phrase: "warehouse", IntentType: "property_type", IntentValue: "warehouse", Locale: "en", Priority: 100},
+	}
+	locations := []searchLocation{{ID: 1, Code: "neighborhood-bang-na", NameTH: "บางนา", NameEN: "Bang Na", Aliases: []string{"bang na"}}}
+	intent := interpretSearch("warehouse Bang Na", aliases, locations)
+	if intent.Locale != "en" {
+		t.Fatalf("locale: %s", intent.Locale)
+	}
+	if len(intent.Chips) < 2 || intent.Chips[0].Label != "warehouse" || intent.Chips[1].Label != "Bang Na" {
+		t.Fatalf("chips: %#v", intent.Chips)
+	}
+}

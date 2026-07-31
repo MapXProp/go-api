@@ -20,6 +20,7 @@ type searchAlias struct {
 	Phrase      string
 	IntentType  string
 	IntentValue string
+	Locale      string
 	Priority    int
 }
 
@@ -42,6 +43,7 @@ type searchChip struct {
 type searchIntent struct {
 	Query          string           `json:"query"`
 	Normalized     string           `json:"normalized_query"`
+	Locale         string           `json:"locale"`
 	PropertyTypes  []string         `json:"property_types"`
 	PropertyGroups []string         `json:"property_groups"`
 	UseCases       []string         `json:"use_cases"`
@@ -121,6 +123,15 @@ func normalizeSearchText(value string) string {
 	return spacePattern.ReplaceAllString(value, " ")
 }
 
+func searchLocale(value string) string {
+	for _, r := range value {
+		if r >= '\u0E00' && r <= '\u0E7F' {
+			return "th"
+		}
+	}
+	return "en"
+}
+
 func parseScaledAmount(number, unit string) (float64, bool) {
 	value, err := strconv.ParseFloat(number, 64)
 	if err != nil {
@@ -149,7 +160,7 @@ func appendUnique(items []string, value string) []string {
 }
 
 func loadSearchAliases(ctx context.Context, db *sql.DB) ([]searchAlias, error) {
-	rows, err := db.QueryContext(ctx, `SELECT phrase, intent_type, intent_value, priority
+	rows, err := db.QueryContext(ctx, `SELECT phrase, intent_type, intent_value, locale, priority
 		FROM public.search_aliases WHERE is_active = true
 		ORDER BY length(normalized_phrase) DESC, priority DESC`)
 	if err != nil {
@@ -159,7 +170,7 @@ func loadSearchAliases(ctx context.Context, db *sql.DB) ([]searchAlias, error) {
 	aliases := make([]searchAlias, 0, 64)
 	for rows.Next() {
 		var alias searchAlias
-		if err := rows.Scan(&alias.Phrase, &alias.IntentType, &alias.IntentValue, &alias.Priority); err != nil {
+		if err := rows.Scan(&alias.Phrase, &alias.IntentType, &alias.IntentValue, &alias.Locale, &alias.Priority); err != nil {
 			return nil, err
 		}
 		aliases = append(aliases, alias)
@@ -188,7 +199,7 @@ func loadSearchLocations(ctx context.Context, db *sql.DB) ([]searchLocation, err
 
 func interpretSearch(query string, aliases []searchAlias, locations []searchLocation) searchIntent {
 	normalized := normalizeSearchText(query)
-	intent := searchIntent{Query: strings.TrimSpace(query), Normalized: normalized, Confidence: 0.15}
+	intent := searchIntent{Query: strings.TrimSpace(query), Normalized: normalized, Locale: searchLocale(query), Confidence: 0.15}
 	remaining := normalized
 
 	for _, alias := range aliases {
@@ -292,13 +303,26 @@ func interpretSearch(query string, aliases []searchAlias, locations []searchLoca
 func buildSearchChips(intent searchIntent, aliases []searchAlias) []searchChip {
 	labels := map[string]string{}
 	labelPriorities := map[string]int{}
-	for _, alias := range aliases {
-		key := alias.IntentType + ":" + alias.IntentValue
-		if alias.Priority > labelPriorities[key] || (alias.Priority == labelPriorities[key] && (labels[key] == "" || len(alias.Phrase) < len(labels[key]))) {
-			labels[key] = alias.Phrase
-			labelPriorities[key] = alias.Priority
+	collectLabels := func(localeOnly bool) {
+		for _, alias := range aliases {
+			if localeOnly && alias.Locale != intent.Locale {
+				continue
+			}
+			key := alias.IntentType + ":" + alias.IntentValue
+			if !localeOnly && labels[key] != "" {
+				continue
+			}
+			if labels[key] != "" && labelPriorities[key] > alias.Priority {
+				continue
+			}
+			if labels[key] == "" || alias.Priority > labelPriorities[key] || len([]rune(alias.Phrase)) < len([]rune(labels[key])) {
+				labels[key] = alias.Phrase
+				labelPriorities[key] = alias.Priority
+			}
 		}
 	}
+	collectLabels(true)
+	collectLabels(false)
 	chips := make([]searchChip, 0, 8)
 	appendValues := func(kind string, values []string) {
 		for _, value := range values {
@@ -314,22 +338,50 @@ func buildSearchChips(intent searchIntent, aliases []searchAlias) []searchChip {
 	appendValues("use_case", intent.UseCases)
 	appendValues("offer_type", intent.OfferTypes)
 	for _, location := range intent.Locations {
-		chips = append(chips, searchChip{Type: "location", Value: location.Code, Label: location.NameTH})
+		label := location.NameTH
+		if intent.Locale == "en" {
+			label = location.NameEN
+		}
+		chips = append(chips, searchChip{Type: "location", Value: location.Code, Label: label})
 	}
 	if intent.MinPrice != nil || intent.MaxPrice != nil {
-		label := "ตามงบที่ระบุ"
-		if intent.MaxPrice != nil {
-			label = "ไม่เกิน " + compactTHB(*intent.MaxPrice)
-		}
-		if intent.MinPrice != nil && intent.MaxPrice != nil {
-			label = compactTHB(*intent.MinPrice) + "–" + compactTHB(*intent.MaxPrice)
-		}
+		label := budgetChipLabel(intent)
 		chips = append(chips, searchChip{Type: "price", Value: label, Label: label})
 	}
 	if intent.Bedrooms != nil {
-		chips = append(chips, searchChip{Type: "bedrooms", Value: strconv.Itoa(*intent.Bedrooms), Label: fmt.Sprintf("%d ห้องนอน", *intent.Bedrooms)})
+		label := fmt.Sprintf("%d ห้องนอน", *intent.Bedrooms)
+		if intent.Locale == "en" {
+			label = fmt.Sprintf("%d bedrooms", *intent.Bedrooms)
+		}
+		chips = append(chips, searchChip{Type: "bedrooms", Value: strconv.Itoa(*intent.Bedrooms), Label: label})
 	}
 	return chips
+}
+
+func budgetChipLabel(intent searchIntent) string {
+	if intent.Locale == "en" {
+		label := "Selected budget"
+		if intent.MaxPrice != nil {
+			label = "Up to ฿" + formatNumber(*intent.MaxPrice)
+		}
+		if intent.MinPrice != nil && intent.MaxPrice != nil {
+			label = "฿" + formatNumber(*intent.MinPrice) + "–฿" + formatNumber(*intent.MaxPrice)
+		} else if intent.MinPrice != nil {
+			label = "From ฿" + formatNumber(*intent.MinPrice)
+		}
+		return label
+	}
+
+	label := "ตามงบที่ระบุ"
+	if intent.MaxPrice != nil {
+		label = "ไม่เกิน " + compactTHB(*intent.MaxPrice)
+	}
+	if intent.MinPrice != nil && intent.MaxPrice != nil {
+		label = compactTHB(*intent.MinPrice) + "–" + compactTHB(*intent.MaxPrice)
+	} else if intent.MinPrice != nil {
+		label = "ตั้งแต่ " + compactTHB(*intent.MinPrice)
+	}
+	return label
 }
 
 func compactTHB(value float64) string {
