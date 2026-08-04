@@ -82,6 +82,43 @@ type searchListing struct {
 	PublishedAt      *time.Time `json:"published_at,omitempty"`
 }
 
+type searchBounds struct {
+	MinLat float64 `json:"min_lat"`
+	MinLon float64 `json:"min_lon"`
+	MaxLat float64 `json:"max_lat"`
+	MaxLon float64 `json:"max_lon"`
+}
+
+func parseSearchBounds(c *fiber.Ctx) (*searchBounds, error) {
+	values := []string{c.Query("min_lat"), c.Query("min_lon"), c.Query("max_lat"), c.Query("max_lon")}
+	provided := 0
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			provided++
+		}
+	}
+	if provided == 0 {
+		return nil, nil
+	}
+	if provided != len(values) {
+		return nil, fmt.Errorf("all map bounds are required")
+	}
+
+	parsed := make([]float64, len(values))
+	for index, value := range values {
+		number, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid map bounds")
+		}
+		parsed[index] = number
+	}
+	bounds := &searchBounds{MinLat: parsed[0], MinLon: parsed[1], MaxLat: parsed[2], MaxLon: parsed[3]}
+	if bounds.MinLat < -90 || bounds.MaxLat > 90 || bounds.MinLon < -180 || bounds.MaxLon > 180 || bounds.MinLat >= bounds.MaxLat || bounds.MinLon >= bounds.MaxLon {
+		return nil, fmt.Errorf("invalid map bounds")
+	}
+	return bounds, nil
+}
+
 var (
 	spacePattern      = regexp.MustCompile(`\s+`)
 	priceRangePattern = regexp.MustCompile(`(?i)([0-9]+(?:\.[0-9]+)?)\s*(?:-|–|—|ถึง|to)\s*([0-9]+(?:\.[0-9]+)?)\s*(ล้าน|แสน|หมื่น|พัน|m|k)?`)
@@ -493,8 +530,12 @@ func PropertySearchSuggestions(db *sql.DB) fiber.Handler {
 func SearchProperties(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		query := strings.TrimSpace(c.Query("q"))
-		if query == "" {
-			return c.Status(400).JSON(fiber.Map{"error": "q is required"})
+		bounds, boundsErr := parseSearchBounds(c)
+		if boundsErr != nil {
+			return c.Status(400).JSON(fiber.Map{"error": boundsErr.Error()})
+		}
+		if query == "" && bounds == nil {
+			return c.Status(400).JSON(fiber.Map{"error": "q or map bounds are required"})
 		}
 		limit, _ := strconv.Atoi(c.Query("limit", "24"))
 		if limit < 1 || limit > 60 {
@@ -506,9 +547,13 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		}
 		ctx, cancel := context.WithTimeout(c.Context(), 8*time.Second)
 		defer cancel()
-		intent, err := parseIntentFromDB(ctx, db, query)
-		if err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": "cannot interpret search"})
+		intent := searchIntent{Query: query, Normalized: normalizeSearchText(query), Locale: searchLocale(query)}
+		if query != "" {
+			var err error
+			intent, err = parseIntentFromDB(ctx, db, query)
+			if err != nil {
+				return c.Status(500).JSON(fiber.Map{"error": "cannot interpret search"})
+			}
 		}
 
 		where := []string{"l.published_at IS NOT NULL"}
@@ -566,10 +611,22 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		if intent.FreeText != "" {
 			where = append(where, "l.search_text ILIKE "+arg("%"+intent.FreeText+"%"))
 		}
+		if bounds != nil {
+			where = append(where,
+				"l.latitude IS NOT NULL",
+				"l.longitude IS NOT NULL",
+				"l.latitude BETWEEN "+arg(bounds.MinLat)+" AND "+arg(bounds.MaxLat),
+				"l.longitude BETWEEN "+arg(bounds.MinLon)+" AND "+arg(bounds.MaxLon),
+			)
+		}
 
-		queryArg := arg(intent.Normalized)
 		limitArg := arg(limit)
 		offsetArg := arg(offset)
+		orderBy := "l.published_at DESC"
+		if intent.Normalized != "" {
+			queryArg := arg(intent.Normalized)
+			orderBy = "similarity(l.search_text, " + queryArg + ") DESC, l.published_at DESC"
+		}
 		sqlQuery := `SELECT l.id, l.public_listing_id::text, COALESCE(l.slug,''), l.title,
 			COALESCE(l.description,''), l.property_type_code, l.listing_type,
 			COALESCE(l.custom_project_name,''), trim(concat_ws(' ',l.address_line1,l.address_line2)),
@@ -578,7 +635,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			l.usable_area_sqm, l.pet_allowed, l.latitude, l.longitude, l.published_at,
 			count(*) OVER() AS total_count
 		FROM public.listings l WHERE ` + strings.Join(where, " AND ") + `
-		ORDER BY similarity(l.search_text, ` + queryArg + `) DESC, l.published_at DESC
+		ORDER BY ` + orderBy + `
 		LIMIT ` + limitArg + ` OFFSET ` + offsetArg
 		rows, err := db.QueryContext(ctx, sqlQuery, args...)
 		if err != nil {
@@ -625,7 +682,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		}
 		intentJSON, _ := json.Marshal(intent)
 		_, _ = db.ExecContext(context.Background(), `INSERT INTO public.search_query_events(query_text,normalized_query,parsed_intent,result_count,source) VALUES($1,$2,$3,$4,'web')`, query, intent.Normalized, intentJSON, total)
-		return c.JSON(fiber.Map{"query": query, "intent": intent, "listings": listings, "total": total, "limit": limit, "offset": offset})
+		return c.JSON(fiber.Map{"query": query, "bounds": bounds, "intent": intent, "listings": listings, "total": total, "limit": limit, "offset": offset})
 	}
 }
 
