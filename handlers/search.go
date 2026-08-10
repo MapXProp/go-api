@@ -41,22 +41,23 @@ type searchChip struct {
 }
 
 type searchIntent struct {
-	Query          string           `json:"query"`
-	Normalized     string           `json:"normalized_query"`
-	Locale         string           `json:"locale"`
-	PropertyTypes  []string         `json:"property_types"`
-	PropertyGroups []string         `json:"property_groups"`
-	UseCases       []string         `json:"use_cases"`
-	OfferTypes     []string         `json:"offer_types"`
-	SpaceTypes     []string         `json:"space_types"`
-	Features       []string         `json:"features"`
-	Locations      []searchLocation `json:"locations"`
-	MinPrice       *float64         `json:"min_price,omitempty"`
-	MaxPrice       *float64         `json:"max_price,omitempty"`
-	Bedrooms       *int             `json:"bedrooms,omitempty"`
-	FreeText       string           `json:"free_text,omitempty"`
-	Confidence     float64          `json:"confidence"`
-	Chips          []searchChip     `json:"chips"`
+	Query             string           `json:"query"`
+	Normalized        string           `json:"normalized_query"`
+	Locale            string           `json:"locale"`
+	PropertyTypes     []string         `json:"property_types"`
+	PropertyGroups    []string         `json:"property_groups"`
+	DiscoveryChannels []string         `json:"discovery_channels"`
+	UseCases          []string         `json:"use_cases"`
+	OfferTypes        []string         `json:"offer_types"`
+	SpaceTypes        []string         `json:"space_types"`
+	Features          []string         `json:"features"`
+	Locations         []searchLocation `json:"locations"`
+	MinPrice          *float64         `json:"min_price,omitempty"`
+	MaxPrice          *float64         `json:"max_price,omitempty"`
+	Bedrooms          *int             `json:"bedrooms,omitempty"`
+	FreeText          string           `json:"free_text,omitempty"`
+	Confidence        float64          `json:"confidence"`
+	Chips             []searchChip     `json:"chips"`
 }
 
 type searchListing struct {
@@ -250,6 +251,8 @@ func interpretSearch(query string, aliases []searchAlias, locations []searchLoca
 			intent.PropertyTypes = appendUnique(intent.PropertyTypes, alias.IntentValue)
 		case "property_group":
 			intent.PropertyGroups = appendUnique(intent.PropertyGroups, alias.IntentValue)
+		case "discovery_channel":
+			intent.DiscoveryChannels = appendUnique(intent.DiscoveryChannels, alias.IntentValue)
 		case "use_case":
 			intent.UseCases = appendUnique(intent.UseCases, alias.IntentValue)
 		case "offer_type":
@@ -322,7 +325,7 @@ func interpretSearch(query string, aliases []searchAlias, locations []searchLoca
 	}
 	intent.FreeText = strings.TrimSpace(spacePattern.ReplaceAllString(remaining, " "))
 
-	understood := len(intent.PropertyTypes) + len(intent.PropertyGroups) + len(intent.UseCases) + len(intent.OfferTypes) + len(intent.SpaceTypes) + len(intent.Features) + len(intent.Locations)
+	understood := len(intent.PropertyTypes) + len(intent.PropertyGroups) + len(intent.DiscoveryChannels) + len(intent.UseCases) + len(intent.OfferTypes) + len(intent.SpaceTypes) + len(intent.Features) + len(intent.Locations)
 	if intent.MinPrice != nil || intent.MaxPrice != nil {
 		understood++
 	}
@@ -375,6 +378,7 @@ func buildSearchChips(intent searchIntent, aliases []searchAlias) []searchChip {
 	}
 	appendValues("property_type", intent.PropertyTypes)
 	appendValues("property_group", intent.PropertyGroups)
+	appendValues("discovery_channel", intent.DiscoveryChannels)
 	appendValues("use_case", intent.UseCases)
 	appendValues("offer_type", intent.OfferTypes)
 	appendValues("space_type", intent.SpaceTypes)
@@ -565,6 +569,21 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		}
 		if len(intent.PropertyGroups) > 0 {
 			categoryFilters = append(categoryFilters, "EXISTS (SELECT 1 FROM public.property_types pt WHERE pt.code=l.property_type_code AND pt.group_code = ANY("+arg(pq.Array(intent.PropertyGroups))+"))")
+		}
+		if len(intent.DiscoveryChannels) > 0 {
+			channelsArg := arg(pq.Array(intent.DiscoveryChannels))
+			categoryFilters = append(categoryFilters, `(EXISTS (
+				SELECT 1 FROM public.listing_discovery_channels ldc
+				WHERE ldc.listing_id=l.id AND ldc.channel_code = ANY(`+channelsArg+`)
+			) OR EXISTS (
+				SELECT 1 FROM public.discovery_channel_property_types dcpt
+				WHERE dcpt.channel_code = ANY(`+channelsArg+`)
+				  AND dcpt.property_type_code=l.property_type_code
+				  AND (cardinality(dcpt.allowed_offer_types)=0 OR EXISTS (
+					SELECT 1 FROM public.listing_offers dlo
+					WHERE dlo.listing_id=l.id AND dlo.offer_type = ANY(dcpt.allowed_offer_types)
+				  ))
+			))`)
 		}
 		if len(intent.SpaceTypes) > 0 {
 			categoryFilters = append(categoryFilters, "EXISTS (SELECT 1 FROM public.listing_business_details lbd WHERE lbd.listing_id=l.id AND lbd.venue_type_code = ANY("+arg(pq.Array(intent.SpaceTypes))+"))")

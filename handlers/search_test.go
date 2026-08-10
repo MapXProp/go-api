@@ -69,3 +69,20 @@ func TestInterpretSearchMarketStallAndMultiplePropertyTypes(t *testing.T) {
 		t.Fatalf("free text: %q", intent.FreeText)
 	}
 }
+
+func TestInterpretSearchDiscoveryChannel(t *testing.T) {
+	aliases := []searchAlias{
+		{Phrase: "ห้องเช่ารายเดือน", IntentType: "discovery_channel", IntentValue: "rooms", Locale: "th", Priority: 110},
+		{Phrase: "หอพัก", IntentType: "property_type", IntentValue: "dormitory", Locale: "th", Priority: 100},
+	}
+	intent := interpretSearch("ห้องเช่ารายเดือน หอพัก", aliases, nil)
+	if len(intent.DiscoveryChannels) != 1 || intent.DiscoveryChannels[0] != "rooms" {
+		t.Fatalf("discovery channels: %#v", intent.DiscoveryChannels)
+	}
+	if len(intent.PropertyTypes) != 1 || intent.PropertyTypes[0] != "dormitory" {
+		t.Fatalf("property types: %#v", intent.PropertyTypes)
+	}
+	if intent.FreeText != "" {
+		t.Fatalf("free text: %q", intent.FreeText)
+	}
+}
