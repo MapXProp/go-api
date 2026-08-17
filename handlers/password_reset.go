@@ -274,12 +274,14 @@ func passwordResetSecret() string {
 func sendPasswordResetEmail(ctx context.Context, recipient string, token string) error {
 	resetURL := frontendURL() + "/reset-password?token=" + token
 	escapedResetURL := html.EscapeString(resetURL)
+	logoURL := frontendURL() + "/M5.png"
+	escapedLogoURL := html.EscapeString(logoURL)
 
 	htmlBody := fmt.Sprintf(`
 		<div style="margin:0;padding:32px 16px;background:#f6f8fb;font-family:Arial,sans-serif;color:#111827;">
 			<div style="max-width:560px;margin:0 auto;">
-				<div style="text-align:center;margin-bottom:18px;font-size:28px;line-height:1;font-weight:800;letter-spacing:0;">
-					<span style="color:#104135;">Map</span><span style="color:#40675D;font-size:20px;">x</span><span style="color:#104135;">Prop</span>
+				<div style="text-align:center;margin-bottom:18px;">
+					<img src="%s" width="190" alt="MapxProp" style="display:block;width:190px;max-width:100%%;height:auto;margin:0 auto;border:0;" />
 				</div>
 				<div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;padding:32px 28px;box-shadow:0 12px 32px rgba(15,23,42,0.08);">
 					<div style="text-align:center;">
@@ -300,7 +302,7 @@ func sendPasswordResetEmail(ctx context.Context, recipient string, token string)
 				<p style="margin:18px auto 0;max-width:520px;text-align:center;font-size:13px;line-height:1.6;color:#6b7280;word-break:break-all;">%s</p>
 			</div>
 		</div>
-	`, escapedResetURL, escapedResetURL)
+	`, escapedLogoURL, escapedResetURL, escapedResetURL)
 
 	textBody := fmt.Sprintf(
 		"ตั้งรหัสผ่าน MapxProp ใหม่\n\nเราได้รับคำขอตั้งรหัสผ่านใหม่สำหรับบัญชี MapxProp ของคุณ\nเปิดลิงก์นี้เพื่อตั้งรหัสผ่านใหม่ ลิงก์จะหมดอายุใน 30 นาที:\n%s\n\nหากคุณไม่ได้เป็นผู้ขอเปลี่ยนรหัสผ่าน สามารถละเว้นอีเมลฉบับนี้ได้\n\nReset your MapxProp password\n\nOpen this link to set a new password. It expires in 30 minutes:\n%s\n\nIf you did not request this, you can ignore this email.",
