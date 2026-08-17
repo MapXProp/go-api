@@ -281,7 +281,7 @@ func sendPasswordResetEmail(ctx context.Context, recipient string, token string)
 		<div style="margin:0;padding:32px 16px;background:#f6f8fb;font-family:Arial,sans-serif;color:#111827;">
 			<div style="max-width:560px;margin:0 auto;">
 				<div style="text-align:center;margin-bottom:18px;">
-					<img src="%s" width="190" alt="MapxProp" style="display:block;width:190px;max-width:100%%;height:auto;margin:0 auto;border:0;" />
+					<img src="%s" width="150" alt="MapxProp" style="display:block;width:150px;max-width:100%%;height:auto;margin:0 auto;border:0;" />
 				</div>
 				<div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;padding:32px 28px;box-shadow:0 12px 32px rgba(15,23,42,0.08);">
 					<div style="text-align:center;">
