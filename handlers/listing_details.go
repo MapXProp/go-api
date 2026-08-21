@@ -35,18 +35,20 @@ type listingEventRoundResponse struct {
 }
 
 type listingEventResponse struct {
-	Name                      string                      `json:"name"`
-	OrganizerName             string                      `json:"organizer_name"`
-	VenueName                 string                      `json:"venue_name"`
-	VenueFloorLabel           string                      `json:"venue_floor_label"`
-	AudienceSegments          []string                    `json:"audience_segments"`
-	AcceptedProductCategories []string                    `json:"accepted_product_categories"`
-	ApplicationInstructions   string                      `json:"application_instructions"`
-	FloorPlanURL              string                      `json:"floor_plan_url"`
-	PriceOnRequest            bool                        `json:"price_on_request"`
-	BoothSizeOnRequest        bool                        `json:"booth_size_on_request"`
-	SourcePublishedAt         *time.Time                  `json:"source_published_at,omitempty"`
-	Rounds                    []listingEventRoundResponse `json:"rounds"`
+	Name                        string                      `json:"name"`
+	OrganizerName               string                      `json:"organizer_name"`
+	OrganizerWebsiteURL         string                      `json:"organizer_website_url"`
+	OrganizerVerificationStatus string                      `json:"organizer_verification_status"`
+	VenueName                   string                      `json:"venue_name"`
+	VenueFloorLabel             string                      `json:"venue_floor_label"`
+	AudienceSegments            []string                    `json:"audience_segments"`
+	AcceptedProductCategories   []string                    `json:"accepted_product_categories"`
+	ApplicationInstructions     string                      `json:"application_instructions"`
+	FloorPlanURL                string                      `json:"floor_plan_url"`
+	PriceOnRequest              bool                        `json:"price_on_request"`
+	BoothSizeOnRequest          bool                        `json:"booth_size_on_request"`
+	SourcePublishedAt           *time.Time                  `json:"source_published_at,omitempty"`
+	Rounds                      []listingEventRoundResponse `json:"rounds"`
 }
 
 type listingDetailResponse struct {
@@ -95,7 +97,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 		var item listingDetailResponse
 		var latitude, longitude, amount sql.NullFloat64
 		var publishedAt, expiresAt, sourcePublishedAt sql.NullTime
-		var eventName, organizerName, venueName, venueFloor, applicationInstructions, floorPlanURL sql.NullString
+		var eventName, organizerName, organizerWebsiteURL, organizerVerificationStatus, venueName, venueFloor, applicationInstructions, floorPlanURL sql.NullString
 		var audienceSegments, acceptedProducts pq.StringArray
 		var priceOnRequest, boothSizeOnRequest sql.NullBool
 
@@ -112,7 +114,9 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				COALESCE(l.contact_name, ''), COALESCE(l.contact_phone, ''), COALESCE(l.line_id, ''),
 				COALESCE(lo.offer_type, ''), lo.amount, COALESCE(lo.price_unit, l.price_unit, ''),
 				l.published_at, l.expires_at, l.is_verified,
-				led.event_name, led.organizer_name, led.venue_name, led.venue_floor_label,
+				led.event_name, led.organizer_name,
+				organizer.website_url, organizer.verification_status,
+				led.venue_name, led.venue_floor_label,
 				led.audience_segments, led.accepted_product_categories,
 				led.application_instructions, led.floor_plan_url,
 				led.price_on_request, led.booth_size_on_request, led.source_published_at
@@ -125,6 +129,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				LIMIT 1
 			) lo ON true
 			LEFT JOIN public.listing_event_details led ON led.listing_id = l.id
+			LEFT JOIN public.listing_organizers organizer ON organizer.id = led.organizer_id
 			WHERE l.slug = $1
 			  AND l.is_active = true
 			  AND l.deleted_at IS NULL
@@ -140,7 +145,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			&latitude, &longitude, &item.ContactName, &item.ContactPhone, &item.LineID,
 			&item.OfferType, &amount, &item.PriceUnit,
 			&publishedAt, &expiresAt, &item.IsVerified,
-			&eventName, &organizerName, &venueName, &venueFloor,
+			&eventName, &organizerName, &organizerWebsiteURL, &organizerVerificationStatus, &venueName, &venueFloor,
 			&audienceSegments, &acceptedProducts, &applicationInstructions, &floorPlanURL,
 			&priceOnRequest, &boothSizeOnRequest, &sourcePublishedAt,
 		)
@@ -199,17 +204,19 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 
 		if eventName.Valid {
 			event := &listingEventResponse{
-				Name:                      eventName.String,
-				OrganizerName:             organizerName.String,
-				VenueName:                 venueName.String,
-				VenueFloorLabel:           venueFloor.String,
-				AudienceSegments:          []string(audienceSegments),
-				AcceptedProductCategories: []string(acceptedProducts),
-				ApplicationInstructions:   applicationInstructions.String,
-				FloorPlanURL:              floorPlanURL.String,
-				PriceOnRequest:            priceOnRequest.Valid && priceOnRequest.Bool,
-				BoothSizeOnRequest:        boothSizeOnRequest.Valid && boothSizeOnRequest.Bool,
-				Rounds:                    make([]listingEventRoundResponse, 0),
+				Name:                        eventName.String,
+				OrganizerName:               organizerName.String,
+				OrganizerWebsiteURL:         organizerWebsiteURL.String,
+				OrganizerVerificationStatus: organizerVerificationStatus.String,
+				VenueName:                   venueName.String,
+				VenueFloorLabel:             venueFloor.String,
+				AudienceSegments:            []string(audienceSegments),
+				AcceptedProductCategories:   []string(acceptedProducts),
+				ApplicationInstructions:     applicationInstructions.String,
+				FloorPlanURL:                floorPlanURL.String,
+				PriceOnRequest:              priceOnRequest.Valid && priceOnRequest.Bool,
+				BoothSizeOnRequest:          boothSizeOnRequest.Valid && boothSizeOnRequest.Bool,
+				Rounds:                      make([]listingEventRoundResponse, 0),
 			}
 			if sourcePublishedAt.Valid {
 				event.SourcePublishedAt = &sourcePublishedAt.Time
