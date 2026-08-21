@@ -62,6 +62,7 @@ type createListingRequest struct {
 	OwnerPermissionRequired bool     `json:"owner_permission_required"`
 	AllowedBusinessTypes    []string `json:"allowed_business_types"`
 	Amenities               []string `json:"amenities"`
+	EventBookingPrice       string   `json:"event_booking_price"`
 }
 
 func CreateListing(db *sql.DB) fiber.Handler {
@@ -346,7 +347,7 @@ func (req createListingRequest) validate() error {
 	if !inSet(req.UsageType, "residence", "business", "mixed") {
 		return fmt.Errorf("invalid usage type")
 	}
-	if !inSet(req.ListingType, "sale", "rent", "sale_and_rent", "lease", "sublease", "business_transfer") {
+	if !inSet(req.ListingType, "sale", "rent", "sale_and_rent", "lease", "sublease", "business_transfer", "event_booking") {
 		return fmt.Errorf("invalid listing type")
 	}
 	for _, useCaseCode := range req.UseCaseCodes {
@@ -355,7 +356,7 @@ func (req createListingRequest) validate() error {
 		}
 	}
 	for _, offerType := range req.OfferTypes {
-		if !inSet(offerType, "sale", "rent", "sublease", "business_transfer") {
+		if !inSet(offerType, "sale", "rent", "sublease", "business_transfer", "event_booking") {
 			return fmt.Errorf("invalid offer type")
 		}
 	}
@@ -379,6 +380,12 @@ func (req createListingRequest) offerAmount(offerType string) (any, string) {
 		return listingNullFloat(req.RentPriceMonthly), "month"
 	case "business_transfer":
 		return listingNullFloat(req.KeyMoneyAmount), "total"
+	case "event_booking":
+		priceUnit := req.PriceUnit
+		if priceUnit == "" {
+			priceUnit = "event_round"
+		}
+		return listingNullFloat(req.EventBookingPrice), priceUnit
 	default:
 		return nil, "total"
 	}

@@ -81,6 +81,14 @@ type searchListing struct {
 	Latitude         *float64   `json:"latitude,omitempty"`
 	Longitude        *float64   `json:"longitude,omitempty"`
 	PublishedAt      *time.Time `json:"published_at,omitempty"`
+	SpaceTypeCode    string     `json:"space_type_code"`
+	PrimaryImageURL  string     `json:"primary_image_url"`
+	EventName        string     `json:"event_name"`
+	EventFloorLabel  string     `json:"event_floor_label"`
+	EventRoundCount  int        `json:"event_round_count"`
+	EventStartsOn    *time.Time `json:"event_starts_on,omitempty"`
+	EventEndsOn      *time.Time `json:"event_ends_on,omitempty"`
+	PriceOnRequest   bool       `json:"price_on_request"`
 }
 
 type searchBounds struct {
@@ -652,8 +660,26 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			COALESCE(l.province_name,''), COALESCE(l.district_name,''),
 			l.sale_price, l.rent_price_monthly, l.bedroom_count, l.bathroom_count,
 			l.usable_area_sqm, l.pet_allowed, l.latitude, l.longitude, l.published_at,
+			COALESCE(l.space_type_code,''), COALESCE(pm.media_url,''),
+			COALESCE(led.event_name,''), COALESCE(led.venue_floor_label,''),
+			COALESCE(er.round_count,0), er.starts_on, er.ends_on,
+			COALESCE(led.price_on_request,false),
 			count(*) OVER() AS total_count
-		FROM public.listings l WHERE ` + strings.Join(where, " AND ") + `
+		FROM public.listings l
+		LEFT JOIN public.listing_event_details led ON led.listing_id = l.id
+		LEFT JOIN LATERAL (
+			SELECT count(*)::integer AS round_count, min(starts_on) AS starts_on, max(ends_on) AS ends_on
+			FROM public.listing_event_rounds
+			WHERE listing_id = l.id AND availability_status IN ('open','limited','waitlist')
+		) er ON true
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(NULLIF(large_url,''), NULLIF(medium_url,''), NULLIF(file_url,''), NULLIF(original_url,''), '') AS media_url
+			FROM public.listing_media
+			WHERE listing_id = l.id AND is_active = true AND deleted_at IS NULL AND media_type = 'image'
+			ORDER BY is_primary DESC, sort_order, id
+			LIMIT 1
+		) pm ON true
+		WHERE ` + strings.Join(where, " AND ") + `
 		ORDER BY ` + orderBy + `
 		LIMIT ` + limitArg + ` OFFSET ` + offsetArg
 		rows, err := db.QueryContext(ctx, sqlQuery, args...)
@@ -667,8 +693,8 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			var item searchListing
 			var sale, rent, area, lat, lng sql.NullFloat64
 			var beds, baths sql.NullInt64
-			var published sql.NullTime
-			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.Description, &item.PropertyTypeCode, &item.ListingType, &item.ProjectName, &item.Address, &item.Province, &item.District, &sale, &rent, &beds, &baths, &area, &item.PetAllowed, &lat, &lng, &published, &total); err != nil {
+			var published, eventStartsOn, eventEndsOn sql.NullTime
+			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.Description, &item.PropertyTypeCode, &item.ListingType, &item.ProjectName, &item.Address, &item.Province, &item.District, &sale, &rent, &beds, &baths, &area, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, &item.PrimaryImageURL, &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &total); err != nil {
 				return c.Status(500).JSON(fiber.Map{"error": "cannot read properties"})
 			}
 			if sale.Valid {
@@ -696,6 +722,12 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			}
 			if published.Valid {
 				item.PublishedAt = &published.Time
+			}
+			if eventStartsOn.Valid {
+				item.EventStartsOn = &eventStartsOn.Time
+			}
+			if eventEndsOn.Valid {
+				item.EventEndsOn = &eventEndsOn.Time
 			}
 			listings = append(listings, item)
 		}
