@@ -28,6 +28,8 @@ func SetupRoutes(app *fiber.App, db *sql.DB) {
 	api.Get("/me", handlers.GetMe(db))
 	api.Post("/listings", handlers.CreateListing(db))
 	api.Get("/listings/:slug", handlers.GetListingBySlug(db))
+	api.Post("/listing-media", handlers.UploadListingMedia(db))
+	api.Get("/listing-media/files/:userID/:filename", handlers.ServeListingMedia)
 	api.Get("/listing-draft", handlers.GetListingDraft(db))
 	api.Put("/listing-draft", handlers.UpsertListingDraft(db))
 	api.Delete("/listing-draft", handlers.DeleteListingDraft(db))

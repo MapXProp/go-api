@@ -663,9 +663,10 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			COALESCE(l.space_type_code,''), COALESCE(pm.media_url,''),
 			COALESCE(led.event_name,''), COALESCE(led.venue_floor_label,''),
 			COALESCE(er.round_count,0), er.starts_on, er.ends_on,
-			COALESCE(led.price_on_request,false),
+			COALESCE((lcd.details->>'price_on_request')::boolean, led.price_on_request, false),
 			count(*) OVER() AS total_count
 		FROM public.listings l
+		LEFT JOIN public.listing_category_details lcd ON lcd.listing_id = l.id
 		LEFT JOIN public.listing_event_details led ON led.listing_id = l.id
 		LEFT JOIN LATERAL (
 			SELECT count(*)::integer AS round_count, min(starts_on) AS starts_on, max(ends_on) AS ends_on

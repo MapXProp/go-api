@@ -119,8 +119,10 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				led.venue_name, led.venue_floor_label,
 				led.audience_segments, led.accepted_product_categories,
 				led.application_instructions, led.floor_plan_url,
-				led.price_on_request, led.booth_size_on_request, led.source_published_at
+				COALESCE((lcd.details->>'price_on_request')::boolean, led.price_on_request),
+				led.booth_size_on_request, led.source_published_at
 			FROM public.listings l
+			LEFT JOIN public.listing_category_details lcd ON lcd.listing_id = l.id
 			LEFT JOIN LATERAL (
 				SELECT offer_type, amount, price_unit
 				FROM public.listing_offers

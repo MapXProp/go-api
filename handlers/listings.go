@@ -3,7 +3,9 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -13,56 +15,59 @@ import (
 )
 
 type createListingRequest struct {
-	PropertyGroupCode       string   `json:"property_group_code"`
-	PropertyTypeCode        string   `json:"property_type_code"`
-	ListingScope            string   `json:"listing_scope"`
-	UseCaseCodes            []string `json:"use_case_codes"`
-	OfferTypes              []string `json:"offer_types"`
-	UsageType               string   `json:"usage_type"`
-	ListingType             string   `json:"listing_type"`
-	Title                   string   `json:"title"`
-	Description             string   `json:"description"`
-	CustomProjectName       string   `json:"custom_project_name"`
-	CustomUnitNumber        string   `json:"custom_unit_number"`
-	SalePrice               string   `json:"sale_price"`
-	RentPriceMonthly        string   `json:"rent_price_monthly"`
-	RentPriceDaily          string   `json:"rent_price_daily"`
-	PriceNegotiable         bool     `json:"price_negotiable"`
-	UsableAreaSqm           string   `json:"usable_area_sqm"`
-	LandAreaSqm             string   `json:"land_area_sqm"`
-	BedroomCount            string   `json:"bedroom_count"`
-	BathroomCount           string   `json:"bathroom_count"`
-	ParkingCount            string   `json:"parking_count"`
-	MaxOccupants            string   `json:"max_occupants"`
-	FloorNo                 string   `json:"floor_no"`
-	TotalFloors             string   `json:"total_floors"`
-	FurnishingStatus        string   `json:"furnishing_status"`
-	PropertyCondition       string   `json:"property_condition"`
-	OccupancyStatus         string   `json:"occupancy_status"`
-	MinimumLeaseMonths      string   `json:"minimum_lease_months"`
-	PetAllowed              bool     `json:"pet_allowed"`
-	PetPolicyCode           string   `json:"pet_policy_code"`
-	ContactName             string   `json:"contact_name"`
-	ContactPhone            string   `json:"contact_phone"`
-	ContactEmail            string   `json:"contact_email"`
-	LineID                  string   `json:"line_id"`
-	AddressLine1            string   `json:"address_line1"`
-	AddressLine2            string   `json:"address_line2"`
-	PostalCode              string   `json:"postal_code"`
-	Latitude                string   `json:"latitude"`
-	Longitude               string   `json:"longitude"`
-	BusinessTypeCode        string   `json:"business_type_code"`
-	SpaceTypeCode           string   `json:"space_type_code"`
-	TargetTenantType        string   `json:"target_tenant_type"`
-	PriceUnit               string   `json:"price_unit"`
-	KeyMoneyAmount          string   `json:"key_money_amount"`
-	ServiceFeeMonthly       string   `json:"service_fee_monthly"`
-	UtilitiesIncluded       bool     `json:"utilities_included"`
-	IsSublease              bool     `json:"is_sublease"`
-	OwnerPermissionRequired bool     `json:"owner_permission_required"`
-	AllowedBusinessTypes    []string `json:"allowed_business_types"`
-	Amenities               []string `json:"amenities"`
-	EventBookingPrice       string   `json:"event_booking_price"`
+	PropertyGroupCode       string         `json:"property_group_code"`
+	PropertyTypeCode        string         `json:"property_type_code"`
+	ListingScope            string         `json:"listing_scope"`
+	UseCaseCodes            []string       `json:"use_case_codes"`
+	OfferTypes              []string       `json:"offer_types"`
+	UsageType               string         `json:"usage_type"`
+	ListingType             string         `json:"listing_type"`
+	Title                   string         `json:"title"`
+	Description             string         `json:"description"`
+	CustomProjectName       string         `json:"custom_project_name"`
+	CustomUnitNumber        string         `json:"custom_unit_number"`
+	SalePrice               string         `json:"sale_price"`
+	RentPriceMonthly        string         `json:"rent_price_monthly"`
+	RentPriceDaily          string         `json:"rent_price_daily"`
+	PriceNegotiable         bool           `json:"price_negotiable"`
+	UsableAreaSqm           string         `json:"usable_area_sqm"`
+	LandAreaSqm             string         `json:"land_area_sqm"`
+	BedroomCount            string         `json:"bedroom_count"`
+	BathroomCount           string         `json:"bathroom_count"`
+	ParkingCount            string         `json:"parking_count"`
+	MaxOccupants            string         `json:"max_occupants"`
+	FloorNo                 string         `json:"floor_no"`
+	TotalFloors             string         `json:"total_floors"`
+	FurnishingStatus        string         `json:"furnishing_status"`
+	PropertyCondition       string         `json:"property_condition"`
+	OccupancyStatus         string         `json:"occupancy_status"`
+	MinimumLeaseMonths      string         `json:"minimum_lease_months"`
+	PetAllowed              bool           `json:"pet_allowed"`
+	PetPolicyCode           string         `json:"pet_policy_code"`
+	ContactName             string         `json:"contact_name"`
+	ContactPhone            string         `json:"contact_phone"`
+	ContactEmail            string         `json:"contact_email"`
+	LineID                  string         `json:"line_id"`
+	AddressLine1            string         `json:"address_line1"`
+	AddressLine2            string         `json:"address_line2"`
+	PostalCode              string         `json:"postal_code"`
+	Latitude                string         `json:"latitude"`
+	Longitude               string         `json:"longitude"`
+	BusinessTypeCode        string         `json:"business_type_code"`
+	SpaceTypeCode           string         `json:"space_type_code"`
+	TargetTenantType        string         `json:"target_tenant_type"`
+	PriceUnit               string         `json:"price_unit"`
+	KeyMoneyAmount          string         `json:"key_money_amount"`
+	ServiceFeeMonthly       string         `json:"service_fee_monthly"`
+	UtilitiesIncluded       bool           `json:"utilities_included"`
+	IsSublease              bool           `json:"is_sublease"`
+	OwnerPermissionRequired bool           `json:"owner_permission_required"`
+	AllowedBusinessTypes    []string       `json:"allowed_business_types"`
+	Amenities               []string       `json:"amenities"`
+	EventBookingPrice       string         `json:"event_booking_price"`
+	PriceOnRequest          bool           `json:"price_on_request"`
+	CategoryDetails         map[string]any `json:"category_details"`
+	MediaURLs               []string       `json:"media_urls"`
 }
 
 func CreateListing(db *sql.DB) fiber.Handler {
@@ -198,6 +203,46 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			return c.Status(500).JSON(fiber.Map{"error": "cannot create listing slug"})
 		}
 
+		categoryDetails, err := json.Marshal(req.CategoryDetails)
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "invalid category details"})
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO public.listing_category_details (
+				listing_id, category_code, schema_version, details, is_minimum_submission
+			) VALUES ($1, $2, 1, $3::jsonb, true)
+			ON CONFLICT (listing_id) DO UPDATE SET
+				category_code = EXCLUDED.category_code,
+				schema_version = EXCLUDED.schema_version,
+				details = EXCLUDED.details,
+				is_minimum_submission = EXCLUDED.is_minimum_submission,
+				updated_at = now()
+		`, listingID, req.PropertyTypeCode, string(categoryDetails)); err != nil {
+			fmt.Println("Create Listing Category Detail Error:", err)
+			return c.Status(500).JSON(fiber.Map{"error": "cannot create category details"})
+		}
+
+		for index, mediaURL := range req.MediaURLs {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO public.listing_media (
+					listing_id, media_type, source_type, role_code, title, alt_text,
+					original_url, file_url, mime_type, sort_order, is_primary, is_active
+				) VALUES ($1, 'image', 'user_upload', $2, $3, $4, $5, $5, $6, $7, $8, true)
+			`,
+				listingID,
+				map[bool]string{true: "cover", false: "gallery"}[index == 0],
+				req.Title,
+				req.Title,
+				mediaURL,
+				listingMediaMimeType(mediaURL),
+				(index+1)*10,
+				index == 0,
+			); err != nil {
+				fmt.Println("Create Listing Media Error:", err)
+				return c.Status(500).JSON(fiber.Map{"error": "cannot attach listing images"})
+			}
+		}
+
 		for _, useCaseCode := range req.UseCaseCodes {
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO public.listing_use_cases (listing_id, use_case_code)
@@ -311,6 +356,12 @@ func (req *createListingRequest) normalize() {
 	req.TargetTenantType = cleanCode(req.TargetTenantType, "")
 	req.AllowedBusinessTypes = cleanStringSlice(req.AllowedBusinessTypes)
 	req.Amenities = cleanStringSlice(req.Amenities)
+	req.MediaURLs = cleanListingMediaURLs(req.MediaURLs)
+	if req.CategoryDetails == nil {
+		req.CategoryDetails = map[string]any{}
+	}
+	req.CategoryDetails["price_on_request"] = req.PriceOnRequest
+	req.CategoryDetails["submission_mode"] = "minimum"
 
 	if len(req.UseCaseCodes) == 0 {
 		switch req.UsageType {
@@ -413,6 +464,34 @@ func cleanStringSlice(values []string) []string {
 		cleaned = append(cleaned, value)
 	}
 	return cleaned
+}
+
+func cleanListingMediaURLs(values []string) []string {
+	cleaned := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if !strings.HasPrefix(value, "/apix/listing-media/files/") || seen[value] {
+			continue
+		}
+		seen[value] = true
+		cleaned = append(cleaned, value)
+		if len(cleaned) == 12 {
+			break
+		}
+	}
+	return cleaned
+}
+
+func listingMediaMimeType(value string) string {
+	switch strings.ToLower(filepath.Ext(value)) {
+	case ".png":
+		return "image/png"
+	case ".webp":
+		return "image/webp"
+	default:
+		return "image/jpeg"
+	}
 }
 
 func inSet(value string, allowed ...string) bool {
