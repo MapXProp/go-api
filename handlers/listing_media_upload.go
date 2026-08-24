@@ -27,12 +27,12 @@ var listingImageExtensions = map[string]string{
 
 func UploadListingMedia(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		claims, _, cancel, err := authenticatedListingMediaRequest(c, db)
+		claims, _, cancel, authenticated := authenticatedListingMediaRequest(c, db)
 		if cancel != nil {
 			defer cancel()
 		}
-		if err != nil {
-			return err
+		if !authenticated {
+			return nil
 		}
 
 		header, err := c.FormFile("file")
@@ -95,21 +95,24 @@ func ServeListingMedia(c *fiber.Ctx) error {
 	return c.SendFile(path)
 }
 
-func authenticatedListingMediaRequest(c *fiber.Ctx, db *sql.DB) (*accessTokenClaims, context.Context, context.CancelFunc, error) {
+func authenticatedListingMediaRequest(c *fiber.Ctx, db *sql.DB) (*accessTokenClaims, context.Context, context.CancelFunc, bool) {
 	token := accessTokenFromRequest(c)
 	if token == "" {
-		return nil, nil, nil, c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "missing authorization token"})
+		_ = c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "missing authorization token"})
+		return nil, nil, nil, false
 	}
 	claims, err := validateAccessToken(token)
 	if err != nil {
-		return nil, nil, nil, c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid or expired token"})
+		_ = c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid or expired token"})
+		return nil, nil, nil, false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	if err := verifyActiveSession(ctx, db, claims); err != nil {
 		cancel()
-		return nil, nil, nil, c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "session revoked or expired"})
+		_ = c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "session revoked or expired"})
+		return nil, nil, nil, false
 	}
-	return claims, ctx, cancel, nil
+	return claims, ctx, cancel, true
 }
 
 func listingMediaRoot() string {
