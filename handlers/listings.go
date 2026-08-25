@@ -15,6 +15,7 @@ import (
 )
 
 type createListingRequest struct {
+	DiscoveryChannelCode    string         `json:"discovery_channel_code"`
 	PropertyGroupCode       string         `json:"property_group_code"`
 	PropertyTypeCode        string         `json:"property_type_code"`
 	ListingScope            string         `json:"listing_scope"`
@@ -282,6 +283,30 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			}
 		}
 
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO public.listing_discovery_channels (listing_id, channel_code, source)
+			SELECT
+				$1,
+				dcpt.channel_code,
+				CASE WHEN dcpt.channel_code = $4 THEN 'manual' ELSE 'derived' END
+			FROM public.discovery_channel_property_types dcpt
+			WHERE dcpt.property_type_code = $2
+			  AND (
+				cardinality(dcpt.allowed_offer_types) = 0
+				OR dcpt.allowed_offer_types && $3::text[]
+			  )
+			ON CONFLICT (listing_id, channel_code) DO UPDATE SET
+				source = CASE
+					WHEN public.listing_discovery_channels.source = 'editorial' THEN 'editorial'
+					WHEN EXCLUDED.source = 'manual' THEN 'manual'
+					ELSE public.listing_discovery_channels.source
+				END,
+				updated_at = now()
+		`, listingID, req.PropertyTypeCode, pq.Array(req.OfferTypes), req.DiscoveryChannelCode); err != nil {
+			fmt.Println("Create Listing Discovery Channel Error:", err)
+			return c.Status(500).JSON(fiber.Map{"error": "cannot assign listing discovery channels"})
+		}
+
 		if req.UsageType != "residence" || req.SpaceTypeCode != "" || len(req.AllowedBusinessTypes) > 0 {
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO public.listing_business_details (
@@ -329,6 +354,7 @@ func CreateListing(db *sql.DB) fiber.Handler {
 }
 
 func (req *createListingRequest) normalize() {
+	req.DiscoveryChannelCode = cleanCode(req.DiscoveryChannelCode, "")
 	req.PropertyGroupCode = cleanCode(req.PropertyGroupCode, "residential")
 	req.PropertyTypeCode = cleanCode(req.PropertyTypeCode, "condo")
 	req.ListingScope = cleanCode(req.ListingScope, "whole_property")
@@ -389,7 +415,10 @@ func (req createListingRequest) validate() error {
 	if !inSet(req.PropertyGroupCode, "residential", "mixed_use", "commercial", "land") {
 		return fmt.Errorf("invalid property group")
 	}
-	if !inSet(req.PropertyTypeCode, "condo", "house", "detached_house", "semi_detached_house", "townhouse", "shophouse", "home_office", "apartment", "dormitory", "office", "retail_space", "warehouse", "factory", "land") {
+	if req.DiscoveryChannelCode != "" && !inSet(req.DiscoveryChannelCode, "homes", "rooms", "business") {
+		return fmt.Errorf("invalid discovery channel")
+	}
+	if !inSet(req.PropertyTypeCode, "condo", "house", "detached_house", "semi_detached_house", "townhouse", "shophouse", "home_office", "apartment", "dormitory", "rental_room", "flat", "serviced_apartment", "monthly_hotel", "office", "retail_space", "warehouse", "factory", "land") {
 		return fmt.Errorf("invalid property type")
 	}
 	if !inSet(req.ListingScope, "single_unit", "whole_property", "multi_unit", "land_plot", "space_slot") {
