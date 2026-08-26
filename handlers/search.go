@@ -90,6 +90,8 @@ type searchListing struct {
 	EventStartsOn    *time.Time `json:"event_starts_on,omitempty"`
 	EventEndsOn      *time.Time `json:"event_ends_on,omitempty"`
 	PriceOnRequest   bool       `json:"price_on_request"`
+	IsVerified       bool       `json:"is_verified"`
+	SourceType       string     `json:"source_type"`
 }
 
 type searchBounds struct {
@@ -665,6 +667,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			COALESCE(led.event_name,''), COALESCE(led.venue_floor_label,''),
 			COALESCE(er.round_count,0), er.starts_on, er.ends_on,
 			COALESCE((lcd.details->>'price_on_request')::boolean, led.price_on_request, false),
+			l.is_verified, COALESCE(ls.source_type,''),
 			count(*) OVER() AS total_count
 		FROM public.listings l
 		LEFT JOIN public.listing_category_details lcd ON lcd.listing_id = l.id
@@ -681,6 +684,13 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			ORDER BY is_primary DESC, sort_order, id
 			LIMIT 1
 		) pm ON true
+		LEFT JOIN LATERAL (
+			SELECT source_type
+			FROM public.listing_sources
+			WHERE listing_id = l.id
+			ORDER BY CASE source_type WHEN 'owner' THEN 0 ELSE 1 END, id
+			LIMIT 1
+		) ls ON true
 		WHERE ` + strings.Join(where, " AND ") + `
 		ORDER BY ` + orderBy + `
 		LIMIT ` + limitArg + ` OFFSET ` + offsetArg
@@ -696,7 +706,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			var sale, rent, area, landArea, lat, lng sql.NullFloat64
 			var beds, baths sql.NullInt64
 			var published, eventStartsOn, eventEndsOn sql.NullTime
-			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.Description, &item.PropertyTypeCode, &item.ListingType, &item.ProjectName, &item.Address, &item.Province, &item.District, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, &item.PrimaryImageURL, &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &total); err != nil {
+			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.Description, &item.PropertyTypeCode, &item.ListingType, &item.ProjectName, &item.Address, &item.Province, &item.District, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, &item.PrimaryImageURL, &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.IsVerified, &item.SourceType, &total); err != nil {
 				return c.Status(500).JSON(fiber.Map{"error": "cannot read properties"})
 			}
 			if sale.Valid {
