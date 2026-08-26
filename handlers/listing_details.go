@@ -12,15 +12,16 @@ import (
 )
 
 type listingMediaResponse struct {
-	ID        int64  `json:"id"`
-	MediaType string `json:"media_type"`
-	RoleCode  string `json:"role_code"`
-	Title     string `json:"title"`
-	AltText   string `json:"alt_text"`
-	URL       string `json:"url"`
-	Width     *int   `json:"width,omitempty"`
-	Height    *int   `json:"height,omitempty"`
-	IsPrimary bool   `json:"is_primary"`
+	ID           int64  `json:"id"`
+	MediaType    string `json:"media_type"`
+	RoleCode     string `json:"role_code"`
+	Title        string `json:"title"`
+	AltText      string `json:"alt_text"`
+	URL          string `json:"url"`
+	ThumbnailURL string `json:"thumbnail_url,omitempty"`
+	Width        *int   `json:"width,omitempty"`
+	Height       *int   `json:"height,omitempty"`
+	IsPrimary    bool   `json:"is_primary"`
 }
 
 type listingEventRoundResponse struct {
@@ -193,6 +194,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 		mediaRows, err := db.QueryContext(ctx, `
 			SELECT id, media_type, role_code, COALESCE(title, ''), COALESCE(alt_text, ''),
 				COALESCE(NULLIF(large_url, ''), NULLIF(medium_url, ''), NULLIF(file_url, ''), NULLIF(original_url, ''), ''),
+				COALESCE(NULLIF(thumbnail_url, ''), NULLIF(thumb_url, ''), NULLIF(medium_url, ''), NULLIF(file_url, ''), ''),
 				width, height, is_primary
 			FROM public.listing_media
 			WHERE listing_id = $1 AND is_active = true AND deleted_at IS NULL
@@ -205,7 +207,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 		for mediaRows.Next() {
 			var media listingMediaResponse
 			var width, height sql.NullInt64
-			if err := mediaRows.Scan(&media.ID, &media.MediaType, &media.RoleCode, &media.Title, &media.AltText, &media.URL, &width, &height, &media.IsPrimary); err != nil {
+			if err := mediaRows.Scan(&media.ID, &media.MediaType, &media.RoleCode, &media.Title, &media.AltText, &media.URL, &media.ThumbnailURL, &width, &height, &media.IsPrimary); err != nil {
 				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read listing media"})
 			}
 			if width.Valid {
