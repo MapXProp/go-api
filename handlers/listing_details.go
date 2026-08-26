@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -69,10 +70,13 @@ type listingDetailResponse struct {
 	District         string                 `json:"district"`
 	Subdistrict      string                 `json:"subdistrict"`
 	PostalCode       string                 `json:"postal_code"`
+	Road             string                 `json:"road"`
+	LandAreaSqm      *float64               `json:"land_area_sqm,omitempty"`
 	Latitude         *float64               `json:"latitude,omitempty"`
 	Longitude        *float64               `json:"longitude,omitempty"`
 	ContactName      string                 `json:"contact_name"`
 	ContactPhone     string                 `json:"contact_phone"`
+	ContactEmail     string                 `json:"contact_email"`
 	LineID           string                 `json:"line_id"`
 	OfferType        string                 `json:"offer_type"`
 	OfferAmount      *float64               `json:"offer_amount,omitempty"`
@@ -80,6 +84,7 @@ type listingDetailResponse struct {
 	PublishedAt      *time.Time             `json:"published_at,omitempty"`
 	ExpiresAt        *time.Time             `json:"expires_at,omitempty"`
 	IsVerified       bool                   `json:"is_verified"`
+	CategoryDetails  map[string]any         `json:"category_details"`
 	Media            []listingMediaResponse `json:"media"`
 	Event            *listingEventResponse  `json:"event,omitempty"`
 }
@@ -95,8 +100,9 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 		defer cancel()
 
 		var item listingDetailResponse
-		var latitude, longitude, amount sql.NullFloat64
+		var latitude, longitude, amount, landAreaSqm sql.NullFloat64
 		var publishedAt, expiresAt, sourcePublishedAt sql.NullTime
+		var rawCategoryDetails []byte
 		var eventName, organizerName, organizerWebsiteURL, organizerVerificationStatus, venueName, venueFloor, applicationInstructions, floorPlanURL sql.NullString
 		var audienceSegments, acceptedProducts pq.StringArray
 		var priceOnRequest, boothSizeOnRequest sql.NullBool
@@ -110,10 +116,10 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				trim(concat_ws(' ', l.address_line1, l.address_line2)),
 				COALESCE(l.province_name, ''), COALESCE(l.district_name, ''),
 				COALESCE(l.subdistrict_name, ''), COALESCE(l.postal_code, ''),
-				l.latitude, l.longitude,
-				COALESCE(l.contact_name, ''), COALESCE(l.contact_phone, ''), COALESCE(l.line_id, ''),
+				COALESCE(l.road, ''), l.land_area_sqm, l.latitude, l.longitude,
+				COALESCE(l.contact_name, ''), COALESCE(l.contact_phone, ''), COALESCE(l.contact_email, ''), COALESCE(l.line_id, ''),
 				COALESCE(lo.offer_type, ''), lo.amount, COALESCE(lo.price_unit, l.price_unit, ''),
-				l.published_at, l.expires_at, l.is_verified,
+				l.published_at, l.expires_at, l.is_verified, COALESCE(lcd.details, '{}'::jsonb),
 				led.event_name, led.organizer_name,
 				organizer.website_url, organizer.verification_status,
 				led.venue_name, led.venue_floor_label,
@@ -144,9 +150,9 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			&item.ListingType, &item.ListingScope, &item.SpaceTypeCode,
 			&item.ProjectName, &item.BuildingName, &item.Address,
 			&item.Province, &item.District, &item.Subdistrict, &item.PostalCode,
-			&latitude, &longitude, &item.ContactName, &item.ContactPhone, &item.LineID,
+			&item.Road, &landAreaSqm, &latitude, &longitude, &item.ContactName, &item.ContactPhone, &item.ContactEmail, &item.LineID,
 			&item.OfferType, &amount, &item.PriceUnit,
-			&publishedAt, &expiresAt, &item.IsVerified,
+			&publishedAt, &expiresAt, &item.IsVerified, &rawCategoryDetails,
 			&eventName, &organizerName, &organizerWebsiteURL, &organizerVerificationStatus, &venueName, &venueFloor,
 			&audienceSegments, &acceptedProducts, &applicationInstructions, &floorPlanURL,
 			&priceOnRequest, &boothSizeOnRequest, &sourcePublishedAt,
@@ -163,6 +169,15 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 		}
 		if longitude.Valid {
 			item.Longitude = &longitude.Float64
+		}
+		if landAreaSqm.Valid {
+			item.LandAreaSqm = &landAreaSqm.Float64
+		}
+		item.CategoryDetails = make(map[string]any)
+		if len(rawCategoryDetails) > 0 {
+			if err := json.Unmarshal(rawCategoryDetails, &item.CategoryDetails); err != nil {
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read listing details"})
+			}
 		}
 		if amount.Valid {
 			item.OfferAmount = &amount.Float64

@@ -77,6 +77,7 @@ type searchListing struct {
 	BedroomCount     *int       `json:"bedroom_count,omitempty"`
 	BathroomCount    *int       `json:"bathroom_count,omitempty"`
 	UsableAreaSqm    *float64   `json:"usable_area_sqm,omitempty"`
+	LandAreaSqm      *float64   `json:"land_area_sqm,omitempty"`
 	PetAllowed       bool       `json:"pet_allowed"`
 	Latitude         *float64   `json:"latitude,omitempty"`
 	Longitude        *float64   `json:"longitude,omitempty"`
@@ -659,7 +660,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			COALESCE(l.custom_project_name,''), trim(concat_ws(' ',l.address_line1,l.address_line2)),
 			COALESCE(l.province_name,''), COALESCE(l.district_name,''),
 			l.sale_price, l.rent_price_monthly, l.bedroom_count, l.bathroom_count,
-			l.usable_area_sqm, l.pet_allowed, l.latitude, l.longitude, l.published_at,
+			l.usable_area_sqm, l.land_area_sqm, l.pet_allowed, l.latitude, l.longitude, l.published_at,
 			COALESCE(l.space_type_code,''), COALESCE(pm.media_url,''),
 			COALESCE(led.event_name,''), COALESCE(led.venue_floor_label,''),
 			COALESCE(er.round_count,0), er.starts_on, er.ends_on,
@@ -692,10 +693,10 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		total := 0
 		for rows.Next() {
 			var item searchListing
-			var sale, rent, area, lat, lng sql.NullFloat64
+			var sale, rent, area, landArea, lat, lng sql.NullFloat64
 			var beds, baths sql.NullInt64
 			var published, eventStartsOn, eventEndsOn sql.NullTime
-			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.Description, &item.PropertyTypeCode, &item.ListingType, &item.ProjectName, &item.Address, &item.Province, &item.District, &sale, &rent, &beds, &baths, &area, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, &item.PrimaryImageURL, &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &total); err != nil {
+			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.Description, &item.PropertyTypeCode, &item.ListingType, &item.ProjectName, &item.Address, &item.Province, &item.District, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, &item.PrimaryImageURL, &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &total); err != nil {
 				return c.Status(500).JSON(fiber.Map{"error": "cannot read properties"})
 			}
 			if sale.Valid {
@@ -714,6 +715,9 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			}
 			if area.Valid {
 				item.UsableAreaSqm = &area.Float64
+			}
+			if landArea.Valid {
+				item.LandAreaSqm = &landArea.Float64
 			}
 			if lat.Valid {
 				item.Latitude = &lat.Float64
