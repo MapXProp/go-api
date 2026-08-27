@@ -46,6 +46,10 @@ func main() {
 	})
 
 	// 5. สั่งให้ API รันที่พอร์ต 8080
-	fmt.Println("Server starts at :8080")
-	log.Fatal(app.Listen(":8080"))
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	fmt.Printf("Server starts at :%s\n", port)
+	log.Fatal(app.Listen(":" + port))
 }

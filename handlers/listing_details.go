@@ -24,6 +24,42 @@ type listingMediaResponse struct {
 	IsPrimary    bool   `json:"is_primary"`
 }
 
+// listingContentBlockResponse keeps presentation copy in PostgreSQL instead of
+// coupling a page component to one particular listing.  The JSON content is
+// deliberately flexible: a card list, a bullet list, or future rich content
+// can share the same transport shape.
+type listingContentBlockResponse struct {
+	Code      string          `json:"code"`
+	Type      string          `json:"type"`
+	HeadingTH string          `json:"heading_th"`
+	HeadingEN string          `json:"heading_en"`
+	BodyTH    string          `json:"body_th"`
+	BodyEN    string          `json:"body_en"`
+	Content   json.RawMessage `json:"content"`
+	SortOrder int             `json:"sort_order"`
+}
+
+type listingNearbyPlaceResponse struct {
+	NameTH            string `json:"name_th"`
+	NameEN            string `json:"name_en"`
+	PlaceTypeCode     string `json:"place_type_code"`
+	DistanceMeters    *int   `json:"distance_meters,omitempty"`
+	TravelTimeMinutes *int   `json:"travel_time_minutes,omitempty"`
+	SortOrder         int    `json:"sort_order"`
+}
+
+type listingTransactionTermResponse struct {
+	Code         string   `json:"code"`
+	LabelTH      string   `json:"label_th"`
+	LabelEN      string   `json:"label_en"`
+	ValueTH      string   `json:"value_th"`
+	ValueEN      string   `json:"value_en"`
+	PayerCode    string   `json:"payer_code"`
+	NumericValue *float64 `json:"numeric_value,omitempty"`
+	UnitCode     string   `json:"unit_code"`
+	SortOrder    int      `json:"sort_order"`
+}
+
 type listingEventRoundResponse struct {
 	ID                 int64    `json:"id"`
 	Label              string   `json:"label"`
@@ -54,40 +90,43 @@ type listingEventResponse struct {
 }
 
 type listingDetailResponse struct {
-	ID               int64                  `json:"id"`
-	PublicListingID  string                 `json:"public_listing_id"`
-	Slug             string                 `json:"slug"`
-	Title            string                 `json:"title"`
-	Description      string                 `json:"description"`
-	PropertyTypeCode string                 `json:"property_type_code"`
-	UsageType        string                 `json:"usage_type"`
-	ListingType      string                 `json:"listing_type"`
-	ListingScope     string                 `json:"listing_scope"`
-	SpaceTypeCode    string                 `json:"space_type_code"`
-	ProjectName      string                 `json:"project_name"`
-	BuildingName     string                 `json:"building_name"`
-	Address          string                 `json:"address"`
-	Province         string                 `json:"province"`
-	District         string                 `json:"district"`
-	Subdistrict      string                 `json:"subdistrict"`
-	PostalCode       string                 `json:"postal_code"`
-	Road             string                 `json:"road"`
-	LandAreaSqm      *float64               `json:"land_area_sqm,omitempty"`
-	Latitude         *float64               `json:"latitude,omitempty"`
-	Longitude        *float64               `json:"longitude,omitempty"`
-	ContactName      string                 `json:"contact_name"`
-	ContactPhone     string                 `json:"contact_phone"`
-	ContactEmail     string                 `json:"contact_email"`
-	LineID           string                 `json:"line_id"`
-	OfferType        string                 `json:"offer_type"`
-	OfferAmount      *float64               `json:"offer_amount,omitempty"`
-	PriceUnit        string                 `json:"price_unit"`
-	PublishedAt      *time.Time             `json:"published_at,omitempty"`
-	ExpiresAt        *time.Time             `json:"expires_at,omitempty"`
-	IsVerified       bool                   `json:"is_verified"`
-	CategoryDetails  map[string]any         `json:"category_details"`
-	Media            []listingMediaResponse `json:"media"`
-	Event            *listingEventResponse  `json:"event,omitempty"`
+	ID               int64                            `json:"id"`
+	PublicListingID  string                           `json:"public_listing_id"`
+	Slug             string                           `json:"slug"`
+	Title            string                           `json:"title"`
+	Description      string                           `json:"description"`
+	PropertyTypeCode string                           `json:"property_type_code"`
+	UsageType        string                           `json:"usage_type"`
+	ListingType      string                           `json:"listing_type"`
+	ListingScope     string                           `json:"listing_scope"`
+	SpaceTypeCode    string                           `json:"space_type_code"`
+	ProjectName      string                           `json:"project_name"`
+	BuildingName     string                           `json:"building_name"`
+	Address          string                           `json:"address"`
+	Province         string                           `json:"province"`
+	District         string                           `json:"district"`
+	Subdistrict      string                           `json:"subdistrict"`
+	PostalCode       string                           `json:"postal_code"`
+	Road             string                           `json:"road"`
+	LandAreaSqm      *float64                         `json:"land_area_sqm,omitempty"`
+	Latitude         *float64                         `json:"latitude,omitempty"`
+	Longitude        *float64                         `json:"longitude,omitempty"`
+	ContactName      string                           `json:"contact_name"`
+	ContactPhone     string                           `json:"contact_phone"`
+	ContactEmail     string                           `json:"contact_email"`
+	LineID           string                           `json:"line_id"`
+	OfferType        string                           `json:"offer_type"`
+	OfferAmount      *float64                         `json:"offer_amount,omitempty"`
+	PriceUnit        string                           `json:"price_unit"`
+	PublishedAt      *time.Time                       `json:"published_at,omitempty"`
+	ExpiresAt        *time.Time                       `json:"expires_at,omitempty"`
+	IsVerified       bool                             `json:"is_verified"`
+	CategoryDetails  map[string]any                   `json:"category_details"`
+	Media            []listingMediaResponse           `json:"media"`
+	ContentBlocks    []listingContentBlockResponse    `json:"content_blocks"`
+	NearbyPlaces     []listingNearbyPlaceResponse     `json:"nearby_places"`
+	TransactionTerms []listingTransactionTermResponse `json:"transaction_terms"`
+	Event            *listingEventResponse            `json:"event,omitempty"`
 }
 
 func GetListingBySlug(db *sql.DB) fiber.Handler {
@@ -219,6 +258,97 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				media.Height = &value
 			}
 			item.Media = append(item.Media, media)
+		}
+		if err := mediaRows.Err(); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read listing media"})
+		}
+
+		item.ContentBlocks = make([]listingContentBlockResponse, 0)
+		contentRows, err := db.QueryContext(ctx, `
+			SELECT block_code, block_type, heading_th, heading_en, body_th, body_en, content, sort_order
+			FROM public.listing_content_blocks
+			WHERE listing_id = $1 AND is_visible = true
+			ORDER BY sort_order, id
+		`, item.ID)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read listing content"})
+		}
+		defer contentRows.Close()
+		for contentRows.Next() {
+			var block listingContentBlockResponse
+			if err := contentRows.Scan(
+				&block.Code, &block.Type, &block.HeadingTH, &block.HeadingEN,
+				&block.BodyTH, &block.BodyEN, &block.Content, &block.SortOrder,
+			); err != nil {
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read listing content"})
+			}
+			item.ContentBlocks = append(item.ContentBlocks, block)
+		}
+		if err := contentRows.Err(); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read listing content"})
+		}
+
+		item.NearbyPlaces = make([]listingNearbyPlaceResponse, 0)
+		nearbyRows, err := db.QueryContext(ctx, `
+			SELECT place_name_th, place_name_en, place_type_code, distance_meters, travel_time_minutes, sort_order
+			FROM public.listing_nearby_places
+			WHERE listing_id = $1 AND is_highlight = true
+			ORDER BY sort_order, id
+		`, item.ID)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read nearby places"})
+		}
+		defer nearbyRows.Close()
+		for nearbyRows.Next() {
+			var place listingNearbyPlaceResponse
+			var distanceMeters, travelTimeMinutes sql.NullInt64
+			if err := nearbyRows.Scan(
+				&place.NameTH, &place.NameEN, &place.PlaceTypeCode,
+				&distanceMeters, &travelTimeMinutes, &place.SortOrder,
+			); err != nil {
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read nearby places"})
+			}
+			if distanceMeters.Valid {
+				value := int(distanceMeters.Int64)
+				place.DistanceMeters = &value
+			}
+			if travelTimeMinutes.Valid {
+				value := int(travelTimeMinutes.Int64)
+				place.TravelTimeMinutes = &value
+			}
+			item.NearbyPlaces = append(item.NearbyPlaces, place)
+		}
+		if err := nearbyRows.Err(); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read nearby places"})
+		}
+
+		item.TransactionTerms = make([]listingTransactionTermResponse, 0)
+		termRows, err := db.QueryContext(ctx, `
+			SELECT term_code, label_th, label_en, value_th, value_en, payer_code, numeric_value, unit_code, sort_order
+			FROM public.listing_transaction_terms
+			WHERE listing_id = $1
+			ORDER BY sort_order, id
+		`, item.ID)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read transaction terms"})
+		}
+		defer termRows.Close()
+		for termRows.Next() {
+			var term listingTransactionTermResponse
+			var numericValue sql.NullFloat64
+			if err := termRows.Scan(
+				&term.Code, &term.LabelTH, &term.LabelEN, &term.ValueTH, &term.ValueEN,
+				&term.PayerCode, &numericValue, &term.UnitCode, &term.SortOrder,
+			); err != nil {
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read transaction terms"})
+			}
+			if numericValue.Valid {
+				term.NumericValue = &numericValue.Float64
+			}
+			item.TransactionTerms = append(item.TransactionTerms, term)
+		}
+		if err := termRows.Err(); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read transaction terms"})
 		}
 
 		if eventName.Valid {

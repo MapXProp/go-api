@@ -549,9 +549,9 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		if boundsErr != nil {
 			return c.Status(400).JSON(fiber.Map{"error": boundsErr.Error()})
 		}
-		if query == "" && bounds == nil {
-			return c.Status(400).JSON(fiber.Map{"error": "q or map bounds are required"})
-		}
+		// An empty query is the public catalogue view. It intentionally returns
+		// only published records, so the web UI never needs to fall back to demo
+		// listings when a visitor opens a category or the map for the first time.
 		limit, _ := strconv.Atoi(c.Query("limit", "24"))
 		if limit < 1 || limit > 60 {
 			limit = 24
@@ -574,6 +574,30 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		where := []string{"l.published_at IS NOT NULL"}
 		args := []any{}
 		arg := func(value any) string { args = append(args, value); return fmt.Sprintf("$%d", len(args)) }
+		discoveryChannel := strings.TrimSpace(c.Query("channel"))
+		if discoveryChannel != "" {
+			validChannels := map[string]bool{"homes": true, "rooms": true, "business": true}
+			if !validChannels[discoveryChannel] {
+				return c.Status(400).JSON(fiber.Map{"error": "invalid discovery channel"})
+			}
+
+			// Discovery channel is deliberately an AND filter. A category page must
+			// only surface the inventory curated for that channel, while still
+			// honouring the automatic property-type mapping for future listings.
+			channelArg := arg(discoveryChannel)
+			where = append(where, `(EXISTS (
+				SELECT 1 FROM public.listing_discovery_channels ldc
+				WHERE ldc.listing_id=l.id AND ldc.channel_code = `+channelArg+`
+			) OR EXISTS (
+				SELECT 1 FROM public.discovery_channel_property_types dcpt
+				WHERE dcpt.channel_code = `+channelArg+`
+				  AND dcpt.property_type_code=l.property_type_code
+				  AND (cardinality(dcpt.allowed_offer_types)=0 OR EXISTS (
+					SELECT 1 FROM public.listing_offers dlo
+					WHERE dlo.listing_id=l.id AND dlo.offer_type = ANY(dcpt.allowed_offer_types)
+				  ))
+			))`)
+		}
 		categoryFilters := []string{}
 		if len(intent.PropertyTypes) > 0 {
 			categoryFilters = append(categoryFilters, "l.property_type_code = ANY("+arg(pq.Array(intent.PropertyTypes))+")")
