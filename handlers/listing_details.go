@@ -90,44 +90,46 @@ type listingEventResponse struct {
 }
 
 type listingDetailResponse struct {
-	ID               int64                            `json:"id"`
-	PublicListingID  string                           `json:"public_listing_id"`
-	Slug             string                           `json:"slug"`
-	Title            string                           `json:"title"`
-	Description      string                           `json:"description"`
-	PropertyTypeCode string                           `json:"property_type_code"`
-	UsageType        string                           `json:"usage_type"`
-	ListingType      string                           `json:"listing_type"`
-	ListingScope     string                           `json:"listing_scope"`
-	SpaceTypeCode    string                           `json:"space_type_code"`
-	SpaceTypeCodes   []string                         `json:"space_type_codes"`
-	ProjectName      string                           `json:"project_name"`
-	BuildingName     string                           `json:"building_name"`
-	Address          string                           `json:"address"`
-	Province         string                           `json:"province"`
-	District         string                           `json:"district"`
-	Subdistrict      string                           `json:"subdistrict"`
-	PostalCode       string                           `json:"postal_code"`
-	Road             string                           `json:"road"`
-	LandAreaSqm      *float64                         `json:"land_area_sqm,omitempty"`
-	Latitude         *float64                         `json:"latitude,omitempty"`
-	Longitude        *float64                         `json:"longitude,omitempty"`
-	ContactName      string                           `json:"contact_name"`
-	ContactPhone     string                           `json:"contact_phone"`
-	ContactEmail     string                           `json:"contact_email"`
-	LineID           string                           `json:"line_id"`
-	OfferType        string                           `json:"offer_type"`
-	OfferAmount      *float64                         `json:"offer_amount,omitempty"`
-	PriceUnit        string                           `json:"price_unit"`
-	PublishedAt      *time.Time                       `json:"published_at,omitempty"`
-	ExpiresAt        *time.Time                       `json:"expires_at,omitempty"`
-	IsVerified       bool                             `json:"is_verified"`
-	CategoryDetails  map[string]any                   `json:"category_details"`
-	Media            []listingMediaResponse           `json:"media"`
-	ContentBlocks    []listingContentBlockResponse    `json:"content_blocks"`
-	NearbyPlaces     []listingNearbyPlaceResponse     `json:"nearby_places"`
-	TransactionTerms []listingTransactionTermResponse `json:"transaction_terms"`
-	Event            *listingEventResponse            `json:"event,omitempty"`
+	ID                    int64                            `json:"id"`
+	PublicListingID       string                           `json:"public_listing_id"`
+	Slug                  string                           `json:"slug"`
+	Title                 string                           `json:"title"`
+	Description           string                           `json:"description"`
+	PropertyTypeCode      string                           `json:"property_type_code"`
+	UsageType             string                           `json:"usage_type"`
+	ListingType           string                           `json:"listing_type"`
+	ListingScope          string                           `json:"listing_scope"`
+	SpaceTypeCode         string                           `json:"space_type_code"`
+	SpaceTypeCodes        []string                         `json:"space_type_codes"`
+	ProjectName           string                           `json:"project_name"`
+	BuildingName          string                           `json:"building_name"`
+	Address               string                           `json:"address"`
+	Province              string                           `json:"province"`
+	District              string                           `json:"district"`
+	Subdistrict           string                           `json:"subdistrict"`
+	PostalCode            string                           `json:"postal_code"`
+	Road                  string                           `json:"road"`
+	LandAreaSqm           *float64                         `json:"land_area_sqm,omitempty"`
+	Latitude              *float64                         `json:"latitude,omitempty"`
+	Longitude             *float64                         `json:"longitude,omitempty"`
+	ContactName           string                           `json:"contact_name"`
+	ContactPhone          string                           `json:"contact_phone"`
+	ContactPhoneSecondary string                           `json:"contact_phone_secondary"`
+	ContactEmail          string                           `json:"contact_email"`
+	LineID                string                           `json:"line_id"`
+	InstagramHandle       string                           `json:"instagram_handle"`
+	OfferType             string                           `json:"offer_type"`
+	OfferAmount           *float64                         `json:"offer_amount,omitempty"`
+	PriceUnit             string                           `json:"price_unit"`
+	PublishedAt           *time.Time                       `json:"published_at,omitempty"`
+	ExpiresAt             *time.Time                       `json:"expires_at,omitempty"`
+	IsVerified            bool                             `json:"is_verified"`
+	CategoryDetails       map[string]any                   `json:"category_details"`
+	Media                 []listingMediaResponse           `json:"media"`
+	ContentBlocks         []listingContentBlockResponse    `json:"content_blocks"`
+	NearbyPlaces          []listingNearbyPlaceResponse     `json:"nearby_places"`
+	TransactionTerms      []listingTransactionTermResponse `json:"transaction_terms"`
+	Event                 *listingEventResponse            `json:"event,omitempty"`
 }
 
 func GetListingBySlug(db *sql.DB) fiber.Handler {
@@ -158,7 +160,8 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				COALESCE(l.province_name, ''), COALESCE(l.district_name, ''),
 				COALESCE(l.subdistrict_name, ''), COALESCE(l.postal_code, ''),
 				COALESCE(l.road, ''), l.land_area_sqm, l.latitude, l.longitude,
-				COALESCE(l.contact_name, ''), COALESCE(l.contact_phone, ''), COALESCE(l.contact_email, ''), COALESCE(l.line_id, ''),
+				COALESCE(l.contact_name, ''), COALESCE(l.contact_phone, ''), COALESCE(l.contact_phone_secondary, ''),
+				COALESCE(l.contact_email, ''), COALESCE(l.line_id, ''), COALESCE(l.instagram_handle, ''),
 				COALESCE(lo.offer_type, ''), lo.amount, COALESCE(lo.price_unit, l.price_unit, ''),
 				l.published_at, l.expires_at, l.is_verified, COALESCE(lcd.details, '{}'::jsonb),
 				led.event_name, led.organizer_name,
@@ -191,7 +194,8 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			&item.ListingType, &item.ListingScope, &item.SpaceTypeCode,
 			&item.ProjectName, &item.BuildingName, &item.Address,
 			&item.Province, &item.District, &item.Subdistrict, &item.PostalCode,
-			&item.Road, &landAreaSqm, &latitude, &longitude, &item.ContactName, &item.ContactPhone, &item.ContactEmail, &item.LineID,
+			&item.Road, &landAreaSqm, &latitude, &longitude, &item.ContactName, &item.ContactPhone,
+			&item.ContactPhoneSecondary, &item.ContactEmail, &item.LineID, &item.InstagramHandle,
 			&item.OfferType, &amount, &item.PriceUnit,
 			&publishedAt, &expiresAt, &item.IsVerified, &rawCategoryDetails,
 			&eventName, &organizerName, &organizerWebsiteURL, &organizerVerificationStatus, &venueName, &venueFloor,

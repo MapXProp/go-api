@@ -16,7 +16,7 @@ func main() {
 	_ = godotenv.Load()
 
 	// 1. เริ่มต้นสร้างแอป API
-	app := fiber.New(fiber.Config{BodyLimit: 10 * 1024 * 1024})
+	app := fiber.New(fiber.Config{BodyLimit: 56 * 1024 * 1024})
 	allowedOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
 	if allowedOrigins == "" {
 		allowedOrigins = "http://localhost:3000,http://127.0.0.1:3000,http://192.168.1.45:3000"

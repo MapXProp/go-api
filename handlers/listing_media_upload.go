@@ -17,12 +17,36 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-const maxListingImageBytes = 8 * 1024 * 1024
+type listingMediaUploadRule struct {
+	maxBytes   int64
+	extensions map[string]string
+}
 
-var listingImageExtensions = map[string]string{
-	"image/jpeg": ".jpg",
-	"image/png":  ".png",
-	"image/webp": ".webp",
+var listingMediaUploadRules = map[string]listingMediaUploadRule{
+	"image": {
+		maxBytes: 8 * 1024 * 1024,
+		extensions: map[string]string{
+			"image/jpeg": ".jpg",
+			"image/png":  ".png",
+			"image/webp": ".webp",
+		},
+	},
+	"360": {
+		maxBytes: 15 * 1024 * 1024,
+		extensions: map[string]string{
+			"image/jpeg": ".jpg",
+			"image/png":  ".png",
+			"image/webp": ".webp",
+		},
+	},
+	"video": {
+		maxBytes: 50 * 1024 * 1024,
+		extensions: map[string]string{
+			"video/mp4":       ".mp4",
+			"video/webm":      ".webm",
+			"video/quicktime": ".mov",
+		},
+	},
 }
 
 func UploadListingMedia(db *sql.DB) fiber.Handler {
@@ -35,45 +59,73 @@ func UploadListingMedia(db *sql.DB) fiber.Handler {
 			return nil
 		}
 
+		mediaType := cleanCode(c.FormValue("media_type"), "image")
+		rule, supported := listingMediaUploadRules[mediaType]
+		if !supported {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "unsupported listing media type"})
+		}
+
 		header, err := c.FormFile("file")
 		if err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "image file is required"})
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "media file is required"})
 		}
-		if header.Size <= 0 || header.Size > maxListingImageBytes {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "image must be 8 MB or smaller"})
+		if header.Size <= 0 || header.Size > rule.maxBytes {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": fmt.Sprintf("%s file is too large", mediaType),
+			})
 		}
 
 		file, err := header.Open()
 		if err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot read image"})
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot read media file"})
 		}
 		defer file.Close()
 
-		data, err := io.ReadAll(io.LimitReader(file, maxListingImageBytes+1))
-		if err != nil || len(data) == 0 || len(data) > maxListingImageBytes {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot read image"})
+		sample := make([]byte, 512)
+		sampleSize, err := io.ReadFull(file, sample)
+		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot read media file"})
 		}
-		mimeType := http.DetectContentType(data)
-		extension, ok := listingImageExtensions[mimeType]
+		if sampleSize == 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "media file is empty"})
+		}
+		mimeType := http.DetectContentType(sample[:sampleSize])
+		extension, ok := rule.extensions[mimeType]
 		if !ok {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "only JPG, PNG, and WebP images are supported"})
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "unsupported media file format"})
+		}
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot read media file"})
 		}
 
 		userDir := filepath.Join(listingMediaRoot(), strconv.FormatInt(claims.UID, 10))
 		if err := os.MkdirAll(userDir, 0o750); err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot prepare image storage"})
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot prepare media storage"})
 		}
 		filename := randomListingMediaName() + extension
-		if err := os.WriteFile(filepath.Join(userDir, filename), data, 0o640); err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot save image"})
+		filePath := filepath.Join(userDir, filename)
+		destination, err := os.OpenFile(filePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o640)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot save media file"})
+		}
+		written, copyErr := io.CopyN(destination, file, rule.maxBytes+1)
+		closeErr := destination.Close()
+		if copyErr != nil && copyErr != io.EOF {
+			_ = os.Remove(filePath)
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cannot read media file"})
+		}
+		if written <= 0 || written > rule.maxBytes || closeErr != nil {
+			_ = os.Remove(filePath)
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "media file is too large or invalid"})
 		}
 
 		url := fmt.Sprintf("/apix/listing-media/files/%d/%s", claims.UID, filename)
 		return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-			"success":   true,
-			"url":       url,
-			"mime_type": mimeType,
-			"size":      len(data),
+			"success":    true,
+			"url":        url,
+			"media_type": mediaType,
+			"mime_type":  mimeType,
+			"size":       written,
 		})
 	}
 }

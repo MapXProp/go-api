@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -15,61 +16,73 @@ import (
 )
 
 type createListingRequest struct {
-	DiscoveryChannelCode    string         `json:"discovery_channel_code"`
-	PropertyGroupCode       string         `json:"property_group_code"`
-	PropertyTypeCode        string         `json:"property_type_code"`
-	ListingScope            string         `json:"listing_scope"`
-	UseCaseCodes            []string       `json:"use_case_codes"`
-	OfferTypes              []string       `json:"offer_types"`
-	UsageType               string         `json:"usage_type"`
-	ListingType             string         `json:"listing_type"`
-	Title                   string         `json:"title"`
-	Description             string         `json:"description"`
-	CustomProjectName       string         `json:"custom_project_name"`
-	CustomUnitNumber        string         `json:"custom_unit_number"`
-	SalePrice               string         `json:"sale_price"`
-	RentPriceMonthly        string         `json:"rent_price_monthly"`
-	RentPriceDaily          string         `json:"rent_price_daily"`
-	PriceNegotiable         bool           `json:"price_negotiable"`
-	UsableAreaSqm           string         `json:"usable_area_sqm"`
-	LandAreaSqm             string         `json:"land_area_sqm"`
-	BedroomCount            string         `json:"bedroom_count"`
-	BathroomCount           string         `json:"bathroom_count"`
-	ParkingCount            string         `json:"parking_count"`
-	MaxOccupants            string         `json:"max_occupants"`
-	FloorNo                 string         `json:"floor_no"`
-	TotalFloors             string         `json:"total_floors"`
-	FurnishingStatus        string         `json:"furnishing_status"`
-	PropertyCondition       string         `json:"property_condition"`
-	OccupancyStatus         string         `json:"occupancy_status"`
-	MinimumLeaseMonths      string         `json:"minimum_lease_months"`
-	PetAllowed              bool           `json:"pet_allowed"`
-	PetPolicyCode           string         `json:"pet_policy_code"`
-	ContactName             string         `json:"contact_name"`
-	ContactPhone            string         `json:"contact_phone"`
-	ContactEmail            string         `json:"contact_email"`
-	LineID                  string         `json:"line_id"`
-	AddressLine1            string         `json:"address_line1"`
-	AddressLine2            string         `json:"address_line2"`
-	PostalCode              string         `json:"postal_code"`
-	Latitude                string         `json:"latitude"`
-	Longitude               string         `json:"longitude"`
-	BusinessTypeCode        string         `json:"business_type_code"`
-	SpaceTypeCode           string         `json:"space_type_code"`
-	SpaceTypeCodes          []string       `json:"space_type_codes"`
-	TargetTenantType        string         `json:"target_tenant_type"`
-	PriceUnit               string         `json:"price_unit"`
-	KeyMoneyAmount          string         `json:"key_money_amount"`
-	ServiceFeeMonthly       string         `json:"service_fee_monthly"`
-	UtilitiesIncluded       bool           `json:"utilities_included"`
-	IsSublease              bool           `json:"is_sublease"`
-	OwnerPermissionRequired bool           `json:"owner_permission_required"`
-	AllowedBusinessTypes    []string       `json:"allowed_business_types"`
-	Amenities               []string       `json:"amenities"`
-	EventBookingPrice       string         `json:"event_booking_price"`
-	PriceOnRequest          bool           `json:"price_on_request"`
-	CategoryDetails         map[string]any `json:"category_details"`
-	MediaURLs               []string       `json:"media_urls"`
+	DiscoveryChannelCode    string              `json:"discovery_channel_code"`
+	PropertyGroupCode       string              `json:"property_group_code"`
+	PropertyTypeCode        string              `json:"property_type_code"`
+	ListingScope            string              `json:"listing_scope"`
+	UseCaseCodes            []string            `json:"use_case_codes"`
+	OfferTypes              []string            `json:"offer_types"`
+	UsageType               string              `json:"usage_type"`
+	ListingType             string              `json:"listing_type"`
+	Title                   string              `json:"title"`
+	Description             string              `json:"description"`
+	CustomProjectName       string              `json:"custom_project_name"`
+	CustomUnitNumber        string              `json:"custom_unit_number"`
+	SalePrice               string              `json:"sale_price"`
+	RentPriceMonthly        string              `json:"rent_price_monthly"`
+	RentPriceDaily          string              `json:"rent_price_daily"`
+	PriceNegotiable         bool                `json:"price_negotiable"`
+	UsableAreaSqm           string              `json:"usable_area_sqm"`
+	LandAreaSqm             string              `json:"land_area_sqm"`
+	BedroomCount            string              `json:"bedroom_count"`
+	BathroomCount           string              `json:"bathroom_count"`
+	ParkingCount            string              `json:"parking_count"`
+	MaxOccupants            string              `json:"max_occupants"`
+	FloorNo                 string              `json:"floor_no"`
+	TotalFloors             string              `json:"total_floors"`
+	FurnishingStatus        string              `json:"furnishing_status"`
+	PropertyCondition       string              `json:"property_condition"`
+	OccupancyStatus         string              `json:"occupancy_status"`
+	MinimumLeaseMonths      string              `json:"minimum_lease_months"`
+	PetAllowed              bool                `json:"pet_allowed"`
+	PetPolicyCode           string              `json:"pet_policy_code"`
+	ContactName             string              `json:"contact_name"`
+	ContactPhone            string              `json:"contact_phone"`
+	ContactPhoneSecondary   string              `json:"contact_phone_secondary"`
+	ContactEmail            string              `json:"contact_email"`
+	LineID                  string              `json:"line_id"`
+	InstagramHandle         string              `json:"instagram_handle"`
+	AddressLine1            string              `json:"address_line1"`
+	AddressLine2            string              `json:"address_line2"`
+	Road                    string              `json:"road"`
+	ProvinceName            string              `json:"province_name"`
+	DistrictName            string              `json:"district_name"`
+	SubdistrictName         string              `json:"subdistrict_name"`
+	PostalCode              string              `json:"postal_code"`
+	Latitude                string              `json:"latitude"`
+	Longitude               string              `json:"longitude"`
+	BusinessTypeCode        string              `json:"business_type_code"`
+	SpaceTypeCode           string              `json:"space_type_code"`
+	SpaceTypeCodes          []string            `json:"space_type_codes"`
+	TargetTenantType        string              `json:"target_tenant_type"`
+	PriceUnit               string              `json:"price_unit"`
+	KeyMoneyAmount          string              `json:"key_money_amount"`
+	ServiceFeeMonthly       string              `json:"service_fee_monthly"`
+	UtilitiesIncluded       bool                `json:"utilities_included"`
+	IsSublease              bool                `json:"is_sublease"`
+	OwnerPermissionRequired bool                `json:"owner_permission_required"`
+	AllowedBusinessTypes    []string            `json:"allowed_business_types"`
+	Amenities               []string            `json:"amenities"`
+	EventBookingPrice       string              `json:"event_booking_price"`
+	PriceOnRequest          bool                `json:"price_on_request"`
+	CategoryDetails         map[string]any      `json:"category_details"`
+	MediaURLs               []string            `json:"media_urls"`
+	MediaItems              []listingMediaInput `json:"media_items"`
+}
+
+type listingMediaInput struct {
+	URL       string `json:"url"`
+	MediaType string `json:"media_type"`
 }
 
 func CreateListing(db *sql.DB) fiber.Handler {
@@ -100,6 +113,9 @@ func CreateListing(db *sql.DB) fiber.Handler {
 		if err := req.validate(); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
+		if err := req.validateMediaOwnership(claims.UID); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
 
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
@@ -126,7 +142,9 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				listing_status, moderation_status, published_at,
 				business_type_code, space_type_code, target_tenant_type, price_unit,
 				key_money_amount, service_fee_monthly, utilities_included,
-				is_sublease, owner_permission_required, source_channel, listing_scope
+				is_sublease, owner_permission_required, source_channel, listing_scope,
+				contact_phone_secondary, instagram_handle,
+				road, province_name, district_name, subdistrict_name
 			) VALUES (
 				$1, $2, $3, $4,
 				$5, $6, $7, $8,
@@ -140,7 +158,9 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				'pending', 'pending', NULL,
 				$36, $37, $38, $39,
 				$40, $41, $42,
-				$43, $44, 'web', $45
+				$43, $44, 'web', $45,
+				$46, $47,
+				$48, $49, $50, $51
 			)
 			RETURNING id, public_listing_id::text
 		`,
@@ -189,6 +209,12 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			req.IsSublease,
 			req.OwnerPermissionRequired,
 			req.ListingScope,
+			listingNullString(req.ContactPhoneSecondary),
+			listingNullString(req.InstagramHandle),
+			listingNullString(req.Road),
+			listingNullString(req.ProvinceName),
+			listingNullString(req.DistrictName),
+			listingNullString(req.SubdistrictName),
 		).Scan(&listingID, &publicListingID)
 		if err != nil {
 			fmt.Println("Create Listing Error:", err)
@@ -239,24 +265,30 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			}
 		}
 
-		for index, mediaURL := range req.MediaURLs {
+		imageIndex := 0
+		for index, media := range req.MediaItems {
+			roleCode := listingMediaRole(media.MediaType, imageIndex)
+			if media.MediaType == "image" {
+				imageIndex++
+			}
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO public.listing_media (
 					listing_id, media_type, source_type, role_code, title, alt_text,
 					original_url, file_url, mime_type, sort_order, is_primary, is_active
-				) VALUES ($1, 'image', 'user_upload', $2, $3, $4, $5, $5, $6, $7, $8, true)
+				) VALUES ($1, $2, 'user_upload', $3, $4, $5, $6, $6, $7, $8, $9, true)
 			`,
 				listingID,
-				map[bool]string{true: "cover", false: "gallery"}[index == 0],
+				media.MediaType,
+				roleCode,
 				req.Title,
 				req.Title,
-				mediaURL,
-				listingMediaMimeType(mediaURL),
+				media.URL,
+				listingMediaMimeType(media.URL),
 				(index+1)*10,
-				index == 0,
+				media.MediaType == "image" && roleCode == "cover",
 			); err != nil {
 				fmt.Println("Create Listing Media Error:", err)
-				return c.Status(500).JSON(fiber.Map{"error": "cannot attach listing images"})
+				return c.Status(500).JSON(fiber.Map{"error": "cannot attach listing media"})
 			}
 		}
 
@@ -355,6 +387,11 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			}
 		}
 
+		if err := verifyCreatedListing(ctx, tx, listingID, req); err != nil {
+			fmt.Println("Create Listing Verification Error:", err)
+			return c.Status(500).JSON(fiber.Map{"error": "cannot verify saved listing"})
+		}
+
 		if err := tx.Commit(); err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": "cannot finish listing transaction"})
 		}
@@ -367,6 +404,63 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			"status":            "pending",
 		})
 	}
+}
+
+func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req createListingRequest) error {
+	var (
+		secondaryPhone string
+		instagram      string
+		province       string
+		district       string
+		subdistrict    string
+		mediaCount     int
+		spaceTypeCount int
+		hasLatitude    bool
+		hasLongitude   bool
+	)
+	err := tx.QueryRowContext(ctx, `
+		SELECT
+			COALESCE(contact_phone_secondary, ''),
+			COALESCE(instagram_handle, ''),
+			COALESCE(province_name, ''),
+			COALESCE(district_name, ''),
+			COALESCE(subdistrict_name, ''),
+			latitude IS NOT NULL,
+			longitude IS NOT NULL,
+			(SELECT count(*) FROM public.listing_media WHERE listing_id = $1 AND is_active = true),
+			(SELECT count(*) FROM public.listing_space_types WHERE listing_id = $1)
+		FROM public.listings
+		WHERE id = $1
+	`, listingID).Scan(
+		&secondaryPhone,
+		&instagram,
+		&province,
+		&district,
+		&subdistrict,
+		&hasLatitude,
+		&hasLongitude,
+		&mediaCount,
+		&spaceTypeCount,
+	)
+	if err != nil {
+		return err
+	}
+	if secondaryPhone != req.ContactPhoneSecondary || instagram != req.InstagramHandle {
+		return fmt.Errorf("contact channels were not persisted")
+	}
+	if province != req.ProvinceName || district != req.DistrictName || subdistrict != req.SubdistrictName {
+		return fmt.Errorf("structured address was not persisted")
+	}
+	if mediaCount != len(req.MediaItems) {
+		return fmt.Errorf("media count mismatch: got %d want %d", mediaCount, len(req.MediaItems))
+	}
+	if spaceTypeCount != len(req.SpaceTypeCodes) {
+		return fmt.Errorf("space type count mismatch: got %d want %d", spaceTypeCount, len(req.SpaceTypeCodes))
+	}
+	if hasLatitude != (strings.TrimSpace(req.Latitude) != "") || hasLongitude != (strings.TrimSpace(req.Longitude) != "") {
+		return fmt.Errorf("listing coordinates were not persisted")
+	}
+	return nil
 }
 
 func (req *createListingRequest) normalize() {
@@ -400,10 +494,16 @@ func (req *createListingRequest) normalize() {
 	req.CustomUnitNumber = strings.TrimSpace(req.CustomUnitNumber)
 	req.AddressLine1 = strings.TrimSpace(req.AddressLine1)
 	req.AddressLine2 = strings.TrimSpace(req.AddressLine2)
+	req.Road = strings.TrimSpace(req.Road)
+	req.ProvinceName = strings.TrimSpace(req.ProvinceName)
+	req.DistrictName = strings.TrimSpace(req.DistrictName)
+	req.SubdistrictName = strings.TrimSpace(req.SubdistrictName)
 	req.ContactName = strings.TrimSpace(req.ContactName)
 	req.ContactPhone = strings.TrimSpace(req.ContactPhone)
+	req.ContactPhoneSecondary = strings.TrimSpace(req.ContactPhoneSecondary)
 	req.ContactEmail = strings.TrimSpace(req.ContactEmail)
 	req.LineID = strings.TrimSpace(req.LineID)
+	req.InstagramHandle = normalizeInstagramHandle(req.InstagramHandle)
 	req.FurnishingStatus = cleanCode(req.FurnishingStatus, "")
 	req.PropertyCondition = cleanCode(req.PropertyCondition, "")
 	req.OccupancyStatus = cleanCode(req.OccupancyStatus, "")
@@ -412,6 +512,12 @@ func (req *createListingRequest) normalize() {
 	req.AllowedBusinessTypes = cleanStringSlice(req.AllowedBusinessTypes)
 	req.Amenities = cleanStringSlice(req.Amenities)
 	req.MediaURLs = cleanListingMediaURLs(req.MediaURLs)
+	req.MediaItems = cleanListingMediaItems(req.MediaItems)
+	if len(req.MediaItems) == 0 {
+		for _, mediaURL := range req.MediaURLs {
+			req.MediaItems = append(req.MediaItems, listingMediaInput{URL: mediaURL, MediaType: "image"})
+		}
+	}
 	if req.CategoryDetails == nil {
 		req.CategoryDetails = map[string]any{}
 	}
@@ -469,8 +575,8 @@ func (req createListingRequest) validate() error {
 			return fmt.Errorf("invalid offer type")
 		}
 	}
-	if len(req.SpaceTypeCodes) > 3 {
-		return fmt.Errorf("a listing can have at most three space types")
+	if len(req.SpaceTypeCodes) > 2 {
+		return fmt.Errorf("a listing can have at most two space types")
 	}
 	for _, spaceTypeCode := range req.SpaceTypeCodes {
 		if !inSet(
@@ -493,16 +599,60 @@ func (req createListingRequest) validate() error {
 	if len(req.SpaceTypeCodes) > 0 && req.PropertyTypeCode != "retail_space" {
 		return fmt.Errorf("space types are only valid for retail space listings")
 	}
+	if req.ProvinceName == "" {
+		return fmt.Errorf("province is required")
+	}
+	if !validListingCoordinates(req.Latitude, req.Longitude) {
+		return fmt.Errorf("valid latitude and longitude are required")
+	}
+	if req.InstagramHandle != "" && !isValidInstagramHandle(req.InstagramHandle) {
+		return fmt.Errorf("invalid Instagram username")
+	}
+	mediaCounts := map[string]int{}
+	for _, media := range req.MediaItems {
+		mediaCounts[media.MediaType]++
+	}
+	if mediaCounts["image"] > 12 || mediaCounts["video"] > 4 || mediaCounts["360"] > 4 {
+		return fmt.Errorf("listing media limit exceeded")
+	}
 	return nil
 }
 
-func (req createListingRequest) businessAllowsCooking() any {
+func (req createListingRequest) validateMediaOwnership(userID int64) error {
+	ownedPrefix := fmt.Sprintf("/apix/listing-media/files/%d/", userID)
+	for _, media := range req.MediaItems {
+		if !strings.HasPrefix(media.URL, ownedPrefix) {
+			return fmt.Errorf("listing media must belong to the authenticated user")
+		}
+		filename := strings.TrimPrefix(media.URL, ownedPrefix)
+		if filename == "" || filepath.Base(filename) != filename {
+			return fmt.Errorf("invalid listing media URL")
+		}
+		if _, err := os.Stat(filepath.Join(listingMediaRoot(), strconv.FormatInt(userID, 10), filename)); err != nil {
+			return fmt.Errorf("uploaded listing media was not found")
+		}
+		extension := strings.ToLower(filepath.Ext(media.URL))
+		validExtension := false
+		switch media.MediaType {
+		case "image", "360":
+			validExtension = inSet(extension, ".jpg", ".png", ".webp")
+		case "video":
+			validExtension = inSet(extension, ".mp4", ".webm", ".mov")
+		}
+		if !validExtension {
+			return fmt.Errorf("listing media type does not match its uploaded file")
+		}
+	}
+	return nil
+}
+
+func (req createListingRequest) businessAllowsCooking() bool {
 	for _, item := range req.AllowedBusinessTypes {
 		if item == "restaurant" || item == "cafe" || item == "food" || item == "food_service" {
 			return true
 		}
 	}
-	return nil
+	return false
 }
 
 func (req createListingRequest) offerAmount(offerType string) (any, string) {
@@ -565,12 +715,78 @@ func cleanListingMediaURLs(values []string) []string {
 	return cleaned
 }
 
+func cleanListingMediaItems(values []listingMediaInput) []listingMediaInput {
+	cleaned := make([]listingMediaInput, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		mediaURL := strings.TrimSpace(value.URL)
+		mediaType := cleanCode(value.MediaType, "")
+		if !strings.HasPrefix(mediaURL, "/apix/listing-media/files/") || seen[mediaURL] {
+			continue
+		}
+		if !inSet(mediaType, "image", "video", "360") {
+			continue
+		}
+		seen[mediaURL] = true
+		cleaned = append(cleaned, listingMediaInput{URL: mediaURL, MediaType: mediaType})
+	}
+	return cleaned
+}
+
+func normalizeInstagramHandle(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(value, "@")
+	value = strings.TrimPrefix(value, "https://www.instagram.com/")
+	value = strings.TrimPrefix(value, "https://instagram.com/")
+	value = strings.Trim(value, "/")
+	return strings.ToLower(value)
+}
+
+func isValidInstagramHandle(value string) bool {
+	if len(value) > 30 {
+		return false
+	}
+	for _, character := range value {
+		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '.' || character == '_' {
+			continue
+		}
+		return false
+	}
+	return value != ""
+}
+
+func validListingCoordinates(latitudeValue string, longitudeValue string) bool {
+	latitude, latitudeErr := strconv.ParseFloat(strings.TrimSpace(latitudeValue), 64)
+	longitude, longitudeErr := strconv.ParseFloat(strings.TrimSpace(longitudeValue), 64)
+	return latitudeErr == nil && longitudeErr == nil && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180
+}
+
+func listingMediaRole(mediaType string, index int) string {
+	switch mediaType {
+	case "video":
+		return "property_video"
+	case "360":
+		return "panorama"
+	default:
+		if index == 0 {
+			return "cover"
+		}
+		return "gallery"
+	}
+}
+
 func listingMediaMimeType(value string) string {
 	switch strings.ToLower(filepath.Ext(value)) {
 	case ".png":
 		return "image/png"
 	case ".webp":
 		return "image/webp"
+	case ".mp4":
+		return "video/mp4"
+	case ".webm":
+		return "video/webm"
+	case ".mov":
+		return "video/quicktime"
 	default:
 		return "image/jpeg"
 	}
