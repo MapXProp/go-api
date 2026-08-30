@@ -75,6 +75,7 @@ type createListingRequest struct {
 	Amenities               []string            `json:"amenities"`
 	EventBookingPrice       string              `json:"event_booking_price"`
 	PriceOnRequest          bool                `json:"price_on_request"`
+	Currency                string              `json:"currency"`
 	CategoryDetails         map[string]any      `json:"category_details"`
 	MediaURLs               []string            `json:"media_urls"`
 	MediaItems              []listingMediaInput `json:"media_items"`
@@ -265,6 +266,17 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			}
 		}
 
+		for _, amenityCode := range req.Amenities {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO public.listing_amenities (listing_id, amenity_code)
+				VALUES ($1, $2)
+				ON CONFLICT (listing_id, amenity_code) DO NOTHING
+			`, listingID, amenityCode); err != nil {
+				fmt.Println("Create Listing Amenity Error:", err)
+				return c.Status(500).JSON(fiber.Map{"error": "cannot create listing amenities"})
+			}
+		}
+
 		imageIndex := 0
 		for index, media := range req.MediaItems {
 			roleCode := listingMediaRole(media.MediaType, imageIndex)
@@ -307,12 +319,13 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			amount, priceUnit := req.offerAmount(offerType)
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO public.listing_offers (
-					listing_id, offer_type, amount, price_unit,
+					listing_id, offer_type, amount, price_unit, currency_code,
 					minimum_contract_months, service_fee_monthly, is_negotiable
-				) VALUES ($1, $2, $3, $4, $5, $6, $7)
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 				ON CONFLICT (listing_id, offer_type) DO UPDATE SET
 					amount = EXCLUDED.amount,
 					price_unit = EXCLUDED.price_unit,
+					currency_code = EXCLUDED.currency_code,
 					minimum_contract_months = EXCLUDED.minimum_contract_months,
 					service_fee_monthly = EXCLUDED.service_fee_monthly,
 					is_negotiable = EXCLUDED.is_negotiable,
@@ -322,6 +335,7 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				offerType,
 				amount,
 				priceUnit,
+				req.Currency,
 				listingNullInt(req.MinimumLeaseMonths),
 				listingNullFloat(req.ServiceFeeMonthly),
 				req.PriceNegotiable,
@@ -415,6 +429,8 @@ func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req 
 		subdistrict    string
 		mediaCount     int
 		spaceTypeCount int
+		amenityCount   int
+		currencyCount  int
 		hasLatitude    bool
 		hasLongitude   bool
 	)
@@ -428,10 +444,12 @@ func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req 
 			latitude IS NOT NULL,
 			longitude IS NOT NULL,
 			(SELECT count(*) FROM public.listing_media WHERE listing_id = $1 AND is_active = true),
-			(SELECT count(*) FROM public.listing_space_types WHERE listing_id = $1)
+			(SELECT count(*) FROM public.listing_space_types WHERE listing_id = $1),
+			(SELECT count(*) FROM public.listing_amenities WHERE listing_id = $1),
+			(SELECT count(*) FROM public.listing_offers WHERE listing_id = $1 AND currency_code = $2)
 		FROM public.listings
 		WHERE id = $1
-	`, listingID).Scan(
+	`, listingID, req.Currency).Scan(
 		&secondaryPhone,
 		&instagram,
 		&province,
@@ -441,6 +459,8 @@ func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req 
 		&hasLongitude,
 		&mediaCount,
 		&spaceTypeCount,
+		&amenityCount,
+		&currencyCount,
 	)
 	if err != nil {
 		return err
@@ -456,6 +476,12 @@ func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req 
 	}
 	if spaceTypeCount != len(req.SpaceTypeCodes) {
 		return fmt.Errorf("space type count mismatch: got %d want %d", spaceTypeCount, len(req.SpaceTypeCodes))
+	}
+	if amenityCount != len(req.Amenities) {
+		return fmt.Errorf("amenity count mismatch: got %d want %d", amenityCount, len(req.Amenities))
+	}
+	if currencyCount != len(req.OfferTypes) {
+		return fmt.Errorf("offer currency count mismatch: got %d want %d", currencyCount, len(req.OfferTypes))
 	}
 	if hasLatitude != (strings.TrimSpace(req.Latitude) != "") || hasLongitude != (strings.TrimSpace(req.Longitude) != "") {
 		return fmt.Errorf("listing coordinates were not persisted")
@@ -511,6 +537,7 @@ func (req *createListingRequest) normalize() {
 	req.TargetTenantType = cleanCode(req.TargetTenantType, "")
 	req.AllowedBusinessTypes = cleanStringSlice(req.AllowedBusinessTypes)
 	req.Amenities = cleanStringSlice(req.Amenities)
+	req.Currency = normalizeListingCurrency(req.Currency)
 	req.MediaURLs = cleanListingMediaURLs(req.MediaURLs)
 	req.MediaItems = cleanListingMediaItems(req.MediaItems)
 	if len(req.MediaItems) == 0 {
@@ -573,6 +600,24 @@ func (req createListingRequest) validate() error {
 	for _, offerType := range req.OfferTypes {
 		if !inSet(offerType, "sale", "rent", "sublease", "business_transfer", "event_booking") {
 			return fmt.Errorf("invalid offer type")
+		}
+	}
+	if req.Currency != "" && !validListingCurrency(req.Currency) {
+		return fmt.Errorf("invalid currency")
+	}
+	for _, amenityCode := range req.Amenities {
+		if !inSet(
+			amenityCode,
+			"air_conditioning",
+			"parking",
+			"elevator",
+			"security",
+			"swimming_pool",
+			"fitness",
+			"wifi",
+			"pet_friendly",
+		) {
+			return fmt.Errorf("invalid amenity")
 		}
 	}
 	if len(req.SpaceTypeCodes) > 2 {
@@ -753,6 +798,26 @@ func isValidInstagramHandle(value string) bool {
 		return false
 	}
 	return value != ""
+}
+
+func normalizeListingCurrency(value string) string {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	if value == "" {
+		return "THB"
+	}
+	return value
+}
+
+func validListingCurrency(value string) bool {
+	if len(value) != 3 {
+		return false
+	}
+	for _, character := range value {
+		if character < 'A' || character > 'Z' {
+			return false
+		}
+	}
+	return true
 }
 
 func validListingCoordinates(latitudeValue string, longitudeValue string) bool {

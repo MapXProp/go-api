@@ -64,6 +64,9 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 
 	db := database.ConnectDB()
 	defer db.Close()
+	if err := database.RunMigrations(db); err != nil {
+		t.Fatal("run integration database migrations:", err)
+	}
 	if err := cleanupStaleListingMatrixRows(db); err != nil {
 		t.Fatal(err)
 	}
@@ -133,6 +136,8 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 	app := fiber.New()
 	app.Post("/listing-media", UploadListingMedia(db))
 	app.Post("/listings", CreateListing(db))
+	app.Get("/listings/:slug", GetListingBySlug(db))
+	app.Get("/me/listings", GetMyListings(db))
 
 	for index, category := range selectableListingCategoryCases {
 		category := category
@@ -165,8 +170,12 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 			payload := integrationListingPayload(category, imageURL, videoURL, panoramaURL)
 			listingID := createIntegrationListing(t, app, accessToken, payload)
 			assertIntegrationListingPersisted(t, db, listingID, userID, category, payload)
+			if index == 0 {
+				assertIntegrationListingDetailReadable(t, app, db, listingID, userID, category)
+			}
 		})
 	}
+	assertIntegrationOwnerListingsReadable(t, app, accessToken)
 
 	if err := cleanup(); err != nil {
 		t.Fatal(err)
@@ -267,6 +276,7 @@ func integrationListingPayload(
 		AllowedBusinessTypes:  allowedBusinessTypes,
 		Amenities:             []string{"air_conditioning", "parking"},
 		PriceOnRequest:        false,
+		Currency:              "THB",
 		CategoryDetails: map[string]any{
 			"integration_category":    category.propertyType,
 			"selected_photo_count":    "1",
@@ -324,15 +334,16 @@ func assertIntegrationListingPersisted(
 ) {
 	t.Helper()
 	var (
-		propertyType, listingScope, usageType, listingType      string
-		title, description, secondaryPhone, instagram           string
-		province, district, subdistrict, road, postalCode       string
-		categoryCode, categoryMarker, submissionMode            string
-		latitude, longitude                                     float64
-		images, videos, panoramas, primaryImages                int
-		videoRoles, panoramaRoles, spaceTypes, useCases, offers int
-		discoveryChannels, businessDetails                      int
-		priceOnRequest                                          bool
+		propertyType, listingScope, usageType, listingType string
+		title, description, secondaryPhone, instagram      string
+		province, district, subdistrict, road, postalCode  string
+		categoryCode, categoryMarker, submissionMode       string
+		latitude, longitude                                float64
+		images, videos, panoramas, primaryImages           int
+		videoRoles, panoramaRoles, spaceTypes, amenities   int
+		useCases, offers, currencyOffers                   int
+		discoveryChannels, businessDetails                 int
+		priceOnRequest                                     bool
 	)
 	err := db.QueryRow(`
 		SELECT
@@ -362,8 +373,10 @@ func assertIntegrationListingPersisted(
 			(SELECT count(*) FROM public.listing_media WHERE listing_id = l.id AND role_code = 'property_video'),
 			(SELECT count(*) FROM public.listing_media WHERE listing_id = l.id AND role_code = 'panorama'),
 			(SELECT count(*) FROM public.listing_space_types WHERE listing_id = l.id),
+			(SELECT count(*) FROM public.listing_amenities WHERE listing_id = l.id),
 			(SELECT count(*) FROM public.listing_use_cases WHERE listing_id = l.id),
 			(SELECT count(*) FROM public.listing_offers WHERE listing_id = l.id),
+			(SELECT count(*) FROM public.listing_offers WHERE listing_id = l.id AND currency_code = 'THB'),
 			(SELECT count(*) FROM public.listing_discovery_channels WHERE listing_id = l.id AND channel_code = $3 AND source = 'manual'),
 			(SELECT count(*) FROM public.listing_business_details WHERE listing_id = l.id)
 		FROM public.listings l
@@ -396,8 +409,10 @@ func assertIntegrationListingPersisted(
 		&videoRoles,
 		&panoramaRoles,
 		&spaceTypes,
+		&amenities,
 		&useCases,
 		&offers,
+		&currencyOffers,
 		&discoveryChannels,
 		&businessDetails,
 	)
@@ -426,8 +441,8 @@ func assertIntegrationListingPersisted(
 	if images != 1 || videos != 1 || panoramas != 1 || primaryImages != 1 || videoRoles != 1 || panoramaRoles != 1 {
 		t.Fatalf("media mismatch: images=%d videos=%d panoramas=%d primary=%d videoRoles=%d panoramaRoles=%d", images, videos, panoramas, primaryImages, videoRoles, panoramaRoles)
 	}
-	if spaceTypes != len(category.spaceTypes) || useCases != len(category.useCases) || offers != len(category.offerTypes) || discoveryChannels != 1 {
-		t.Fatalf("relation count mismatch: spaces=%d useCases=%d offers=%d requestedChannel=%d", spaceTypes, useCases, offers, discoveryChannels)
+	if spaceTypes != len(category.spaceTypes) || amenities != len(payload.Amenities) || useCases != len(category.useCases) || offers != len(category.offerTypes) || currencyOffers != offers || discoveryChannels != 1 {
+		t.Fatalf("relation count mismatch: spaces=%d amenities=%d useCases=%d offers=%d currencyOffers=%d requestedChannel=%d", spaceTypes, amenities, useCases, offers, currencyOffers, discoveryChannels)
 	}
 	expectedBusinessDetails := 0
 	if category.usageType != "residence" || len(category.spaceTypes) > 0 {
@@ -446,6 +461,9 @@ func assertIntegrationListingPersisted(
 	for _, spaceType := range category.spaceTypes {
 		assertIntegrationRelation(t, db, `SELECT count(*) FROM public.listing_space_types WHERE listing_id = $1 AND space_type_code = $2`, listingID, spaceType)
 	}
+	for _, amenityCode := range payload.Amenities {
+		assertIntegrationRelation(t, db, `SELECT count(*) FROM public.listing_amenities WHERE listing_id = $1 AND amenity_code = $2`, listingID, amenityCode)
+	}
 }
 
 func assertIntegrationRelation(t *testing.T, db *sql.DB, query string, listingID int64, code string) {
@@ -456,6 +474,78 @@ func assertIntegrationRelation(t *testing.T, db *sql.DB, query string, listingID
 	}
 	if count != 1 {
 		t.Fatalf("relation %q was not persisted exactly once", code)
+	}
+}
+
+func assertIntegrationListingDetailReadable(
+	t *testing.T,
+	app *fiber.App,
+	db *sql.DB,
+	listingID int64,
+	userID int64,
+	category listingCategoryIntegrationCase,
+) {
+	t.Helper()
+	var slug string
+	if err := db.QueryRow(`
+		UPDATE public.listings
+		SET listing_status = 'active', moderation_status = 'approved', published_at = now()
+		WHERE id = $1 AND user_id = $2
+		RETURNING slug
+	`, listingID, userID).Scan(&slug); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest("GET", "/listings/"+slug, nil)
+	response, err := app.Test(request, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 200 {
+		var errorBody map[string]any
+		_ = json.NewDecoder(response.Body).Decode(&errorBody)
+		t.Fatalf("read listing detail status=%d body=%v", response.StatusCode, errorBody)
+	}
+	var detail listingDetailResponse
+	if err := json.NewDecoder(response.Body).Decode(&detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.PropertyTypeCode != category.propertyType || detail.Currency != "THB" {
+		t.Fatalf("listing detail classification/currency mismatch: type=%q currency=%q", detail.PropertyTypeCode, detail.Currency)
+	}
+	if len(detail.Amenities) != 2 || detail.Amenities[0] != "air_conditioning" || detail.Amenities[1] != "parking" {
+		t.Fatalf("listing detail amenities mismatch: %#v", detail.Amenities)
+	}
+}
+
+func assertIntegrationOwnerListingsReadable(t *testing.T, app *fiber.App, accessToken string) {
+	t.Helper()
+	request := httptest.NewRequest("GET", "/me/listings", nil)
+	request.Header.Set("Authorization", "Bearer "+accessToken)
+	response, err := app.Test(request, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 200 {
+		var errorBody map[string]any
+		_ = json.NewDecoder(response.Body).Decode(&errorBody)
+		t.Fatalf("read owner listings status=%d body=%v", response.StatusCode, errorBody)
+	}
+	var result struct {
+		Listings []myListingResponse `json:"listings"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Listings) != len(selectableListingCategoryCases) {
+		t.Fatalf("owner listing count mismatch: got=%d want=%d", len(result.Listings), len(selectableListingCategoryCases))
+	}
+	for _, listing := range result.Listings {
+		if listing.Currency != "THB" {
+			t.Fatalf("owner listing %d currency mismatch: %q", listing.ID, listing.Currency)
+		}
 	}
 }
 

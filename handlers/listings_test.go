@@ -73,6 +73,8 @@ func TestCreateListingNormalizeKeepsTypedMediaAndContactChannels(t *testing.T) {
 		PropertyTypeCode: "condo",
 		Title:            "Condo near transit",
 		InstagramHandle:  "https://www.instagram.com/MapX.Prop/",
+		Currency:         " thb ",
+		Amenities:        []string{"Parking", "air-conditioning", "parking"},
 		MediaItems: []listingMediaInput{
 			{URL: "/apix/listing-media/files/12/cover.jpg", MediaType: "image"},
 			{URL: "/apix/listing-media/files/12/tour.mp4", MediaType: "video"},
@@ -88,6 +90,43 @@ func TestCreateListingNormalizeKeepsTypedMediaAndContactChannels(t *testing.T) {
 	}
 	if len(req.MediaItems) != 3 {
 		t.Fatalf("media items: %#v", req.MediaItems)
+	}
+	if req.Currency != "THB" {
+		t.Fatalf("currency: %q", req.Currency)
+	}
+	wantAmenities := []string{"parking", "air_conditioning"}
+	if len(req.Amenities) != len(wantAmenities) {
+		t.Fatalf("amenities: %#v", req.Amenities)
+	}
+	for index := range wantAmenities {
+		if req.Amenities[index] != wantAmenities[index] {
+			t.Fatalf("amenities: %#v", req.Amenities)
+		}
+	}
+}
+
+func TestCreateListingValidateRejectsUnknownAmenityAndInvalidCurrency(t *testing.T) {
+	base := createListingRequest{
+		PropertyGroupCode: "residential",
+		PropertyTypeCode:  "condo",
+		ListingScope:      "single_unit",
+		UsageType:         "residence",
+		ListingType:       "rent",
+		Title:             "Condo",
+		ProvinceName:      "Bangkok",
+		Latitude:          "13.7563",
+		Longitude:         "100.5018",
+		Currency:          "THB",
+		Amenities:         []string{"private_spaceship"},
+	}
+	if err := base.validate(); err == nil {
+		t.Fatal("expected unknown amenity to be rejected")
+	}
+
+	base.Amenities = []string{"parking"}
+	base.Currency = "BAHT"
+	if err := base.validate(); err == nil {
+		t.Fatal("expected invalid currency to be rejected")
 	}
 }
 

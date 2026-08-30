@@ -121,6 +121,8 @@ type listingDetailResponse struct {
 	OfferType             string                           `json:"offer_type"`
 	OfferAmount           *float64                         `json:"offer_amount,omitempty"`
 	PriceUnit             string                           `json:"price_unit"`
+	Currency              string                           `json:"currency"`
+	Amenities             []string                         `json:"amenities"`
 	PublishedAt           *time.Time                       `json:"published_at,omitempty"`
 	ExpiresAt             *time.Time                       `json:"expires_at,omitempty"`
 	IsVerified            bool                             `json:"is_verified"`
@@ -163,6 +165,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				COALESCE(l.contact_name, ''), COALESCE(l.contact_phone, ''), COALESCE(l.contact_phone_secondary, ''),
 				COALESCE(l.contact_email, ''), COALESCE(l.line_id, ''), COALESCE(l.instagram_handle, ''),
 				COALESCE(lo.offer_type, ''), lo.amount, COALESCE(lo.price_unit, l.price_unit, ''),
+				COALESCE(lo.currency_code, 'THB'),
 				l.published_at, l.expires_at, l.is_verified, COALESCE(lcd.details, '{}'::jsonb),
 				led.event_name, led.organizer_name,
 				organizer.website_url, organizer.verification_status,
@@ -174,7 +177,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			FROM public.listings l
 			LEFT JOIN public.listing_category_details lcd ON lcd.listing_id = l.id
 			LEFT JOIN LATERAL (
-				SELECT offer_type, amount, price_unit
+				SELECT offer_type, amount, price_unit, currency_code
 				FROM public.listing_offers
 				WHERE listing_id = l.id
 				ORDER BY CASE offer_type WHEN 'event_booking' THEN 0 WHEN 'rent' THEN 1 ELSE 2 END, id
@@ -196,7 +199,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			&item.Province, &item.District, &item.Subdistrict, &item.PostalCode,
 			&item.Road, &landAreaSqm, &latitude, &longitude, &item.ContactName, &item.ContactPhone,
 			&item.ContactPhoneSecondary, &item.ContactEmail, &item.LineID, &item.InstagramHandle,
-			&item.OfferType, &amount, &item.PriceUnit,
+			&item.OfferType, &amount, &item.PriceUnit, &item.Currency,
 			&publishedAt, &expiresAt, &item.IsVerified, &rawCategoryDetails,
 			&eventName, &organizerName, &organizerWebsiteURL, &organizerVerificationStatus, &venueName, &venueFloor,
 			&audienceSegments, &acceptedProducts, &applicationInstructions, &floorPlanURL,
@@ -258,6 +261,32 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 		}
 		if err := spaceTypeRows.Close(); err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot finish reading listing space types"})
+		}
+
+		item.Amenities = make([]string, 0)
+		amenityRows, err := db.QueryContext(ctx, `
+			SELECT amenity_code
+			FROM public.listing_amenities
+			WHERE listing_id = $1
+			ORDER BY amenity_code
+		`, item.ID)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read listing amenities"})
+		}
+		for amenityRows.Next() {
+			var amenityCode string
+			if err := amenityRows.Scan(&amenityCode); err != nil {
+				amenityRows.Close()
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read listing amenities"})
+			}
+			item.Amenities = append(item.Amenities, amenityCode)
+		}
+		if err := amenityRows.Err(); err != nil {
+			amenityRows.Close()
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read listing amenities"})
+		}
+		if err := amenityRows.Close(); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot finish reading listing amenities"})
 		}
 		if len(item.SpaceTypeCodes) == 0 && item.SpaceTypeCode != "" {
 			item.SpaceTypeCodes = append(item.SpaceTypeCodes, item.SpaceTypeCode)

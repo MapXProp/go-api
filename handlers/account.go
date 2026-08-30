@@ -36,6 +36,7 @@ type myListingResponse struct {
 	Address          string     `json:"address"`
 	Price            *float64   `json:"price,omitempty"`
 	PriceUnit        string     `json:"price_unit"`
+	Currency         string     `json:"currency"`
 	PrimaryImageURL  string     `json:"primary_image_url"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
@@ -225,13 +226,14 @@ func GetMyListings(db *sql.DB) fiber.Handler {
 				),
 				COALESCE(offer.amount, l.rent_price_monthly, l.sale_price, l.rent_price_daily),
 				COALESCE(offer.price_unit, l.price_unit, ''),
+				COALESCE(offer.currency_code, 'THB'),
 				COALESCE(media.url, ''),
 				l.created_at,
 				l.updated_at,
 				l.published_at
 			FROM public.listings l
 			LEFT JOIN LATERAL (
-				SELECT amount, price_unit
+				SELECT amount, price_unit, currency_code
 				FROM public.listing_offers
 				WHERE listing_id = l.id
 				ORDER BY CASE offer_type
@@ -286,6 +288,7 @@ func GetMyListings(db *sql.DB) fiber.Handler {
 				&item.Address,
 				&price,
 				&item.PriceUnit,
+				&item.Currency,
 				&item.PrimaryImageURL,
 				&item.CreatedAt,
 				&item.UpdatedAt,
