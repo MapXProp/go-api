@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"estate-map-api/database"
 	"fmt"
@@ -18,19 +19,57 @@ import (
 	"github.com/joho/godotenv"
 )
 
-func TestCreateListingPersistsCompleteSubmission(t *testing.T) {
+type listingCategoryIntegrationCase struct {
+	propertyType     string
+	propertyGroup    string
+	discoveryChannel string
+	listingScope     string
+	useCases         []string
+	offerTypes       []string
+	usageType        string
+	listingType      string
+	spaceTypes       []string
+}
+
+var selectableListingCategoryCases = []listingCategoryIntegrationCase{
+	{propertyType: "detached_house", propertyGroup: "residential", discoveryChannel: "homes", listingScope: "whole_property", useCases: []string{"residential"}, offerTypes: []string{"rent"}, usageType: "residence", listingType: "rent"},
+	{propertyType: "semi_detached_house", propertyGroup: "residential", discoveryChannel: "homes", listingScope: "whole_property", useCases: []string{"residential"}, offerTypes: []string{"rent"}, usageType: "residence", listingType: "rent"},
+	{propertyType: "townhouse", propertyGroup: "residential", discoveryChannel: "homes", listingScope: "whole_property", useCases: []string{"residential"}, offerTypes: []string{"rent"}, usageType: "residence", listingType: "rent"},
+	{propertyType: "condo", propertyGroup: "residential", discoveryChannel: "homes", listingScope: "single_unit", useCases: []string{"residential"}, offerTypes: []string{"sale", "rent"}, usageType: "residence", listingType: "sale_and_rent"},
+	{propertyType: "shophouse", propertyGroup: "mixed_use", discoveryChannel: "homes", listingScope: "whole_property", useCases: []string{"residential", "retail"}, offerTypes: []string{"rent"}, usageType: "mixed", listingType: "rent"},
+	{propertyType: "home_office", propertyGroup: "mixed_use", discoveryChannel: "homes", listingScope: "whole_property", useCases: []string{"residential", "office"}, offerTypes: []string{"rent"}, usageType: "mixed", listingType: "rent"},
+	{propertyType: "land", propertyGroup: "land", discoveryChannel: "homes", listingScope: "land_plot", useCases: []string{"residential"}, offerTypes: []string{"sale"}, usageType: "residence", listingType: "sale"},
+	{propertyType: "rental_room", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"residential"}, offerTypes: []string{"rent"}, usageType: "residence", listingType: "rent"},
+	{propertyType: "apartment", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"residential"}, offerTypes: []string{"rent"}, usageType: "residence", listingType: "rent"},
+	{propertyType: "dormitory", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "multi_unit", useCases: []string{"residential"}, offerTypes: []string{"rent"}, usageType: "residence", listingType: "rent"},
+	{propertyType: "flat", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"residential"}, offerTypes: []string{"rent"}, usageType: "residence", listingType: "rent"},
+	{propertyType: "serviced_apartment", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"residential", "hospitality"}, offerTypes: []string{"rent"}, usageType: "mixed", listingType: "rent"},
+	{propertyType: "monthly_hotel", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"hospitality"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent"},
+	{propertyType: "office", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "single_unit", useCases: []string{"office"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent"},
+	{propertyType: "retail_space", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "space_slot", useCases: []string{"retail", "food_service"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent", spaceTypes: []string{"mall_kiosk", "event_booth"}},
+	{propertyType: "warehouse", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "whole_property", useCases: []string{"storage"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent"},
+	{propertyType: "factory", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "whole_property", useCases: []string{"industrial"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent"},
+}
+
+func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 	if os.Getenv("MAPXPROP_DB_INTEGRATION") != "1" {
 		t.Skip("set MAPXPROP_DB_INTEGRATION=1 to run the database integration test")
 	}
 	if err := godotenv.Load("../.env"); err != nil {
 		t.Fatal("load integration database environment:", err)
 	}
+	if len(selectableListingCategoryCases) != 17 {
+		t.Fatalf("integration matrix must cover 17 selectable property types, got %d", len(selectableListingCategoryCases))
+	}
 
 	db := database.ConnectDB()
 	defer db.Close()
+	if err := cleanupStaleListingMatrixRows(db); err != nil {
+		t.Fatal(err)
+	}
 
 	publicUserID := uuid.NewString()
-	email := fmt.Sprintf("codex-listing-check-%s@example.invalid", uuid.NewString())
+	email := fmt.Sprintf("codex-listing-matrix-%s@example.invalid", uuid.NewString())
 	var userID int64
 	if err := db.QueryRow(`
 		INSERT INTO public.auth_users (
@@ -41,13 +80,40 @@ func TestCreateListingPersistsCompleteSubmission(t *testing.T) {
 	`, publicUserID, email).Scan(&userID); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if _, err := db.Exec(`DELETE FROM public.auth_users WHERE id = $1 AND email = $2`, userID, email); err != nil {
-			t.Errorf("cleanup integration user: %v", err)
+
+	mediaDirectory := filepath.Join(listingMediaRoot(), strconv.FormatInt(userID, 10))
+	cleanupComplete := false
+	cleanup := func() error {
+		if _, err := db.Exec(`DELETE FROM public.listings WHERE user_id = $1`, userID); err != nil {
+			return fmt.Errorf("delete integration listings: %w", err)
 		}
-		mediaDirectory := filepath.Join(listingMediaRoot(), strconv.FormatInt(userID, 10))
+		if _, err := db.Exec(`DELETE FROM public.auth_users WHERE id = $1 AND email = $2`, userID, email); err != nil {
+			return fmt.Errorf("delete integration user: %w", err)
+		}
 		if err := os.RemoveAll(mediaDirectory); err != nil {
-			t.Errorf("cleanup integration media: %v", err)
+			return fmt.Errorf("delete integration media: %w", err)
+		}
+
+		var users, listings int
+		if err := db.QueryRow(`SELECT count(*) FROM public.auth_users WHERE id = $1 OR email = $2`, userID, email).Scan(&users); err != nil {
+			return fmt.Errorf("verify integration user cleanup: %w", err)
+		}
+		if err := db.QueryRow(`SELECT count(*) FROM public.listings WHERE user_id = $1`, userID).Scan(&listings); err != nil {
+			return fmt.Errorf("verify integration listing cleanup: %w", err)
+		}
+		if users != 0 || listings != 0 {
+			return fmt.Errorf("integration rows remain after cleanup: users=%d listings=%d", users, listings)
+		}
+		if _, err := os.Stat(mediaDirectory); !os.IsNotExist(err) {
+			return fmt.Errorf("integration media directory remains after cleanup: %s", mediaDirectory)
+		}
+		return nil
+	}
+	defer func() {
+		if !cleanupComplete {
+			if err := cleanup(); err != nil {
+				t.Errorf("cleanup integration data: %v", err)
+			}
 		}
 	}()
 
@@ -67,62 +133,156 @@ func TestCreateListingPersistsCompleteSubmission(t *testing.T) {
 	app := fiber.New()
 	app.Post("/listing-media", UploadListingMedia(db))
 	app.Post("/listings", CreateListing(db))
-	imageURL := uploadIntegrationMedia(
-		t,
-		app,
-		accessToken,
-		"image",
-		"cover.png",
-		[]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 0, 'I', 'H', 'D', 'R'},
-	)
-	videoURL := uploadIntegrationMedia(
-		t,
-		app,
-		accessToken,
-		"video",
-		"tour.mp4",
-		[]byte{0, 0, 0, 24, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm', 0, 0, 0, 0, 'i', 's', 'o', 'm', 'm', 'p', '4', '1'},
-	)
-	panoramaURL := uploadIntegrationMedia(
-		t,
-		app,
-		accessToken,
-		"360",
-		"panorama.png",
-		[]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 0, 'I', 'H', 'D', 'R'},
-	)
 
-	payload := createListingRequest{
-		DiscoveryChannelCode:  "business",
-		PropertyGroupCode:     "commercial",
-		PropertyTypeCode:      "retail_space",
-		ListingScope:          "space_slot",
-		UseCaseCodes:          []string{"retail"},
-		OfferTypes:            []string{"rent"},
-		UsageType:             "business",
-		ListingType:           "rent",
-		Title:                 "Integration listing persistence check",
+	for index, category := range selectableListingCategoryCases {
+		category := category
+		t.Run(fmt.Sprintf("%02d_%s", index+1, category.propertyType), func(t *testing.T) {
+			imageURL := uploadIntegrationMedia(
+				t,
+				app,
+				accessToken,
+				"image",
+				category.propertyType+"-cover.png",
+				[]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 0, 'I', 'H', 'D', 'R'},
+			)
+			videoURL := uploadIntegrationMedia(
+				t,
+				app,
+				accessToken,
+				"video",
+				category.propertyType+"-tour.mp4",
+				[]byte{0, 0, 0, 24, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm', 0, 0, 0, 0, 'i', 's', 'o', 'm', 'm', 'p', '4', '1'},
+			)
+			panoramaURL := uploadIntegrationMedia(
+				t,
+				app,
+				accessToken,
+				"360",
+				category.propertyType+"-panorama.png",
+				[]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 0, 'I', 'H', 'D', 'R'},
+			)
+
+			payload := integrationListingPayload(category, imageURL, videoURL, panoramaURL)
+			listingID := createIntegrationListing(t, app, accessToken, payload)
+			assertIntegrationListingPersisted(t, db, listingID, userID, category, payload)
+		})
+	}
+
+	if err := cleanup(); err != nil {
+		t.Fatal(err)
+	}
+	cleanupComplete = true
+}
+
+func cleanupStaleListingMatrixRows(db *sql.DB) error {
+	const predicate = `
+		title LIKE 'DB matrix check: %'
+		AND contact_email = 'listing-test@example.invalid'
+		AND description LIKE 'Complete integration submission for %'
+	`
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM public.listings WHERE ` + predicate).Scan(&count); err != nil {
+		return fmt.Errorf("count stale integration listings: %w", err)
+	}
+	if count > len(selectableListingCategoryCases) {
+		return fmt.Errorf("refusing broad stale integration cleanup: found %d rows", count)
+	}
+	if count == 0 {
+		return nil
+	}
+	result, err := db.Exec(`DELETE FROM public.listings WHERE ` + predicate)
+	if err != nil {
+		return fmt.Errorf("delete stale integration listings: %w", err)
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("count deleted stale integration listings: %w", err)
+	}
+	if deleted != int64(count) {
+		return fmt.Errorf("stale integration cleanup mismatch: found=%d deleted=%d", count, deleted)
+	}
+	return nil
+}
+
+func integrationListingPayload(
+	category listingCategoryIntegrationCase,
+	imageURL string,
+	videoURL string,
+	panoramaURL string,
+) createListingRequest {
+	spaceTypeCode := ""
+	allowedBusinessTypes := []string(nil)
+	if len(category.spaceTypes) > 0 {
+		spaceTypeCode = category.spaceTypes[0]
+		allowedBusinessTypes = []string{"retail", "food_service"}
+	}
+	return createListingRequest{
+		DiscoveryChannelCode:  category.discoveryChannel,
+		PropertyGroupCode:     category.propertyGroup,
+		PropertyTypeCode:      category.propertyType,
+		ListingScope:          category.listingScope,
+		UseCaseCodes:          category.useCases,
+		OfferTypes:            category.offerTypes,
+		UsageType:             category.usageType,
+		ListingType:           category.listingType,
+		Title:                 "DB matrix check: " + category.propertyType,
+		Description:           "Complete integration submission for " + category.propertyType,
+		CustomProjectName:     "MapXProp Integration Project",
+		CustomUnitNumber:      "TEST-17",
+		SalePrice:             "9250000",
 		RentPriceMonthly:      "25000",
-		ContactName:           "MapXProp Test",
+		RentPriceDaily:        "2000",
+		PriceNegotiable:       true,
+		UsableAreaSqm:         "85.5",
+		LandAreaSqm:           "160",
+		BedroomCount:          "2",
+		BathroomCount:         "2",
+		ParkingCount:          "1",
+		MaxOccupants:          "4",
+		FloorNo:               "5",
+		TotalFloors:           "20",
+		FurnishingStatus:      "fully_furnished",
+		PropertyCondition:     "good",
+		OccupancyStatus:       "vacant",
+		MinimumLeaseMonths:    "12",
+		PetAllowed:            true,
+		PetPolicyCode:         "allowed",
+		ContactName:           "MapXProp DB Test",
 		ContactPhone:          "0800000000",
 		ContactPhoneSecondary: "0811111111",
+		ContactEmail:          "listing-test@example.invalid",
+		LineID:                "mapxprop-test",
 		InstagramHandle:       "@mapxprop.test",
 		AddressLine1:          "99 Test Road",
+		AddressLine2:          "Khlong Tan, Khlong Toei, Bangkok",
 		Road:                  "Test Road",
-		ProvinceName:          "กรุงเทพมหานคร",
-		DistrictName:          "คลองเตย",
-		SubdistrictName:       "คลองตัน",
+		ProvinceName:          "Bangkok",
+		DistrictName:          "Khlong Toei",
+		SubdistrictName:       "Khlong Tan",
 		PostalCode:            "10110",
 		Latitude:              "13.7300000",
 		Longitude:             "100.5700000",
-		SpaceTypeCode:         "mall_kiosk",
-		SpaceTypeCodes:        []string{"mall_kiosk", "event_booth"},
+		SpaceTypeCode:         spaceTypeCode,
+		SpaceTypeCodes:        category.spaceTypes,
+		AllowedBusinessTypes:  allowedBusinessTypes,
+		Amenities:             []string{"air_conditioning", "parking"},
+		PriceOnRequest:        false,
+		CategoryDetails: map[string]any{
+			"integration_category":    category.propertyType,
+			"selected_photo_count":    "1",
+			"selected_video_count":    "1",
+			"selected_panorama_count": "1",
+		},
 		MediaItems: []listingMediaInput{
 			{URL: imageURL, MediaType: "image"},
 			{URL: videoURL, MediaType: "video"},
 			{URL: panoramaURL, MediaType: "360"},
 		},
 	}
+}
+
+func createIntegrationListing(t *testing.T, app *fiber.App, accessToken string, payload createListingRequest) int64 {
+	t.Helper()
 	body, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
@@ -148,45 +308,154 @@ func TestCreateListingPersistsCompleteSubmission(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 		t.Fatal(err)
 	}
+	if result.ID == 0 {
+		t.Fatal("create listing returned no database ID")
+	}
+	return result.ID
+}
 
-	var secondaryPhone, instagram, province string
-	var latitude, longitude float64
-	var images, videos, panoramas, spaceTypes int
-	if err := db.QueryRow(`
+func assertIntegrationListingPersisted(
+	t *testing.T,
+	db *sql.DB,
+	listingID int64,
+	userID int64,
+	category listingCategoryIntegrationCase,
+	payload createListingRequest,
+) {
+	t.Helper()
+	var (
+		propertyType, listingScope, usageType, listingType      string
+		title, description, secondaryPhone, instagram           string
+		province, district, subdistrict, road, postalCode       string
+		categoryCode, categoryMarker, submissionMode            string
+		latitude, longitude                                     float64
+		images, videos, panoramas, primaryImages                int
+		videoRoles, panoramaRoles, spaceTypes, useCases, offers int
+		discoveryChannels, businessDetails                      int
+		priceOnRequest                                          bool
+	)
+	err := db.QueryRow(`
 		SELECT
+			l.property_type_code,
+			l.listing_scope,
+			l.usage_type,
+			l.listing_type,
+			l.title,
+			COALESCE(l.description, ''),
 			COALESCE(l.contact_phone_secondary, ''),
 			COALESCE(l.instagram_handle, ''),
 			COALESCE(l.province_name, ''),
+			COALESCE(l.district_name, ''),
+			COALESCE(l.subdistrict_name, ''),
+			COALESCE(l.road, ''),
+			COALESCE(l.postal_code, ''),
 			l.latitude,
 			l.longitude,
+			COALESCE(lcd.category_code, ''),
+			COALESCE(lcd.details->>'integration_category', ''),
+			COALESCE(lcd.details->>'submission_mode', ''),
+			COALESCE((lcd.details->>'price_on_request')::boolean, false),
 			(SELECT count(*) FROM public.listing_media WHERE listing_id = l.id AND media_type = 'image'),
 			(SELECT count(*) FROM public.listing_media WHERE listing_id = l.id AND media_type = 'video'),
 			(SELECT count(*) FROM public.listing_media WHERE listing_id = l.id AND media_type = '360'),
-			(SELECT count(*) FROM public.listing_space_types WHERE listing_id = l.id)
+			(SELECT count(*) FROM public.listing_media WHERE listing_id = l.id AND role_code = 'cover' AND is_primary = true),
+			(SELECT count(*) FROM public.listing_media WHERE listing_id = l.id AND role_code = 'property_video'),
+			(SELECT count(*) FROM public.listing_media WHERE listing_id = l.id AND role_code = 'panorama'),
+			(SELECT count(*) FROM public.listing_space_types WHERE listing_id = l.id),
+			(SELECT count(*) FROM public.listing_use_cases WHERE listing_id = l.id),
+			(SELECT count(*) FROM public.listing_offers WHERE listing_id = l.id),
+			(SELECT count(*) FROM public.listing_discovery_channels WHERE listing_id = l.id AND channel_code = $3 AND source = 'manual'),
+			(SELECT count(*) FROM public.listing_business_details WHERE listing_id = l.id)
 		FROM public.listings l
+		LEFT JOIN public.listing_category_details lcd ON lcd.listing_id = l.id
 		WHERE l.id = $1 AND l.user_id = $2
-	`, result.ID, userID).Scan(
+	`, listingID, userID, category.discoveryChannel).Scan(
+		&propertyType,
+		&listingScope,
+		&usageType,
+		&listingType,
+		&title,
+		&description,
 		&secondaryPhone,
 		&instagram,
 		&province,
+		&district,
+		&subdistrict,
+		&road,
+		&postalCode,
 		&latitude,
 		&longitude,
+		&categoryCode,
+		&categoryMarker,
+		&submissionMode,
+		&priceOnRequest,
 		&images,
 		&videos,
 		&panoramas,
+		&primaryImages,
+		&videoRoles,
+		&panoramaRoles,
 		&spaceTypes,
-	); err != nil {
+		&useCases,
+		&offers,
+		&discoveryChannels,
+		&businessDetails,
+	)
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	if secondaryPhone != "0811111111" || instagram != "mapxprop.test" || province != "กรุงเทพมหานคร" {
-		t.Fatalf("contact/location mismatch: %q %q %q", secondaryPhone, instagram, province)
+	if propertyType != category.propertyType || listingScope != category.listingScope || usageType != category.usageType || listingType != category.listingType {
+		t.Fatalf("classification mismatch: type=%q scope=%q usage=%q listing=%q", propertyType, listingScope, usageType, listingType)
+	}
+	if title != payload.Title || description != payload.Description {
+		t.Fatalf("content mismatch: title=%q description=%q", title, description)
+	}
+	if secondaryPhone != payload.ContactPhoneSecondary || instagram != "mapxprop.test" {
+		t.Fatalf("contact mismatch: secondary=%q instagram=%q", secondaryPhone, instagram)
+	}
+	if province != payload.ProvinceName || district != payload.DistrictName || subdistrict != payload.SubdistrictName || road != payload.Road || postalCode != payload.PostalCode {
+		t.Fatalf("address mismatch: province=%q district=%q subdistrict=%q road=%q postal=%q", province, district, subdistrict, road, postalCode)
 	}
 	if latitude != 13.73 || longitude != 100.57 {
 		t.Fatalf("coordinate mismatch: %f,%f", latitude, longitude)
 	}
-	if images != 1 || videos != 1 || panoramas != 1 || spaceTypes != 2 {
-		t.Fatalf("related data mismatch: images=%d videos=%d panoramas=%d spaceTypes=%d", images, videos, panoramas, spaceTypes)
+	if categoryCode != category.propertyType || categoryMarker != category.propertyType || submissionMode != "minimum" || priceOnRequest {
+		t.Fatalf("category details mismatch: code=%q marker=%q mode=%q priceOnRequest=%v", categoryCode, categoryMarker, submissionMode, priceOnRequest)
+	}
+	if images != 1 || videos != 1 || panoramas != 1 || primaryImages != 1 || videoRoles != 1 || panoramaRoles != 1 {
+		t.Fatalf("media mismatch: images=%d videos=%d panoramas=%d primary=%d videoRoles=%d panoramaRoles=%d", images, videos, panoramas, primaryImages, videoRoles, panoramaRoles)
+	}
+	if spaceTypes != len(category.spaceTypes) || useCases != len(category.useCases) || offers != len(category.offerTypes) || discoveryChannels != 1 {
+		t.Fatalf("relation count mismatch: spaces=%d useCases=%d offers=%d requestedChannel=%d", spaceTypes, useCases, offers, discoveryChannels)
+	}
+	expectedBusinessDetails := 0
+	if category.usageType != "residence" || len(category.spaceTypes) > 0 {
+		expectedBusinessDetails = 1
+	}
+	if businessDetails != expectedBusinessDetails {
+		t.Fatalf("business details mismatch: got=%d want=%d", businessDetails, expectedBusinessDetails)
+	}
+
+	for _, useCase := range category.useCases {
+		assertIntegrationRelation(t, db, `SELECT count(*) FROM public.listing_use_cases WHERE listing_id = $1 AND use_case_code = $2`, listingID, useCase)
+	}
+	for _, offerType := range category.offerTypes {
+		assertIntegrationRelation(t, db, `SELECT count(*) FROM public.listing_offers WHERE listing_id = $1 AND offer_type = $2`, listingID, offerType)
+	}
+	for _, spaceType := range category.spaceTypes {
+		assertIntegrationRelation(t, db, `SELECT count(*) FROM public.listing_space_types WHERE listing_id = $1 AND space_type_code = $2`, listingID, spaceType)
+	}
+}
+
+func assertIntegrationRelation(t *testing.T, db *sql.DB, query string, listingID int64, code string) {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(query, listingID, code).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("relation %q was not persisted exactly once", code)
 	}
 }
 
