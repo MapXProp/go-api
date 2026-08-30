@@ -96,6 +96,7 @@ type listingDetailResponse struct {
 	Title                 string                           `json:"title"`
 	Description           string                           `json:"description"`
 	PropertyTypeCode      string                           `json:"property_type_code"`
+	AccommodationModel    string                           `json:"accommodation_model"`
 	UsageType             string                           `json:"usage_type"`
 	ListingType           string                           `json:"listing_type"`
 	ListingScope          string                           `json:"listing_scope"`
@@ -155,7 +156,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 		err := db.QueryRowContext(ctx, `
 			SELECT
 				l.id, l.public_listing_id::text, COALESCE(l.slug, ''), l.title,
-				COALESCE(l.description, ''), l.property_type_code, l.usage_type,
+				COALESCE(l.description, ''), l.property_type_code, COALESCE(l.accommodation_model, ''), l.usage_type,
 				l.listing_type, l.listing_scope, COALESCE(l.space_type_code, ''),
 				COALESCE(l.custom_project_name, ''), COALESCE(l.custom_building_name, ''),
 				trim(concat_ws(' ', l.address_line1, l.address_line2)),
@@ -193,7 +194,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			LIMIT 1
 		`, slug).Scan(
 			&item.ID, &item.PublicListingID, &item.Slug, &item.Title,
-			&item.Description, &item.PropertyTypeCode, &item.UsageType,
+			&item.Description, &item.PropertyTypeCode, &item.AccommodationModel, &item.UsageType,
 			&item.ListingType, &item.ListingScope, &item.SpaceTypeCode,
 			&item.ProjectName, &item.BuildingName, &item.Address,
 			&item.Province, &item.District, &item.Subdistrict, &item.PostalCode,

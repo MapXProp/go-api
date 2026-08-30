@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"estate-map-api/database"
@@ -20,15 +21,17 @@ import (
 )
 
 type listingCategoryIntegrationCase struct {
-	propertyType     string
-	propertyGroup    string
-	discoveryChannel string
-	listingScope     string
-	useCases         []string
-	offerTypes       []string
-	usageType        string
-	listingType      string
-	spaceTypes       []string
+	propertyType               string
+	expectedPropertyType       string
+	expectedAccommodationModel string
+	propertyGroup              string
+	discoveryChannel           string
+	listingScope               string
+	useCases                   []string
+	offerTypes                 []string
+	usageType                  string
+	listingType                string
+	spaceTypes                 []string
 }
 
 var selectableListingCategoryCases = []listingCategoryIntegrationCase{
@@ -40,15 +43,16 @@ var selectableListingCategoryCases = []listingCategoryIntegrationCase{
 	{propertyType: "home_office", propertyGroup: "mixed_use", discoveryChannel: "homes", listingScope: "whole_property", useCases: []string{"residential", "office"}, offerTypes: []string{"rent"}, usageType: "mixed", listingType: "rent"},
 	{propertyType: "land", propertyGroup: "land", discoveryChannel: "homes", listingScope: "land_plot", useCases: []string{"residential"}, offerTypes: []string{"sale"}, usageType: "residence", listingType: "sale"},
 	{propertyType: "rental_room", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"residential"}, offerTypes: []string{"rent"}, usageType: "residence", listingType: "rent"},
-	{propertyType: "apartment", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"residential"}, offerTypes: []string{"rent"}, usageType: "residence", listingType: "rent"},
+	{propertyType: "apartment", expectedPropertyType: "apartment", expectedAccommodationModel: "standard", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"residential"}, offerTypes: []string{"rent"}, usageType: "residence", listingType: "rent"},
 	{propertyType: "dormitory", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "multi_unit", useCases: []string{"residential"}, offerTypes: []string{"rent"}, usageType: "residence", listingType: "rent"},
 	{propertyType: "flat", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"residential"}, offerTypes: []string{"rent"}, usageType: "residence", listingType: "rent"},
-	{propertyType: "serviced_apartment", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"residential", "hospitality"}, offerTypes: []string{"rent"}, usageType: "mixed", listingType: "rent"},
+	{propertyType: "serviced_apartment", expectedPropertyType: "apartment", expectedAccommodationModel: "serviced", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"residential", "hospitality"}, offerTypes: []string{"rent"}, usageType: "mixed", listingType: "rent"},
 	{propertyType: "monthly_hotel", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"hospitality"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent"},
 	{propertyType: "office", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "single_unit", useCases: []string{"office"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent"},
 	{propertyType: "retail_space", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "space_slot", useCases: []string{"retail", "food_service"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent", spaceTypes: []string{"mall_kiosk", "event_booth"}},
 	{propertyType: "warehouse", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "whole_property", useCases: []string{"storage"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent"},
 	{propertyType: "factory", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "whole_property", useCases: []string{"industrial"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent"},
+	{propertyType: "condo", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"residential"}, offerTypes: []string{"rent"}, usageType: "residence", listingType: "rent"},
 }
 
 func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
@@ -58,8 +62,8 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 	if err := godotenv.Load("../.env"); err != nil {
 		t.Fatal("load integration database environment:", err)
 	}
-	if len(selectableListingCategoryCases) != 17 {
-		t.Fatalf("integration matrix must cover 17 selectable property types, got %d", len(selectableListingCategoryCases))
+	if len(selectableListingCategoryCases) != 18 {
+		t.Fatalf("integration matrix must cover 17 property types plus the monthly-condo route, got %d", len(selectableListingCategoryCases))
 	}
 
 	db := database.ConnectDB()
@@ -67,6 +71,7 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 	if err := database.RunMigrations(db); err != nil {
 		t.Fatal("run integration database migrations:", err)
 	}
+	assertRoomTaxonomySearch(t, db)
 	if err := cleanupStaleListingMatrixRows(db); err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +175,7 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 			payload := integrationListingPayload(category, imageURL, videoURL, panoramaURL)
 			listingID := createIntegrationListing(t, app, accessToken, payload)
 			assertIntegrationListingPersisted(t, db, listingID, userID, category, payload)
-			if index == 0 {
+			if index == 0 || category.discoveryChannel == "rooms" {
 				assertIntegrationListingDetailReadable(t, app, db, listingID, userID, category)
 			}
 		})
@@ -181,6 +186,36 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 		t.Fatal(err)
 	}
 	cleanupComplete = true
+}
+
+func assertRoomTaxonomySearch(t *testing.T, db *sql.DB) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	servicedIntent, err := parseIntentFromDB(ctx, db, "เซอร์วิสอพาร์ตเมนต์")
+	if err != nil {
+		t.Fatal("parse serviced apartment search:", err)
+	}
+	if !inSet("apartment", servicedIntent.PropertyTypes...) || !inSet("serviced", servicedIntent.Features...) {
+		t.Fatalf("serviced apartment search mismatch: types=%v features=%v", servicedIntent.PropertyTypes, servicedIntent.Features)
+	}
+
+	flatIntent, err := parseIntentFromDB(ctx, db, "แฟลต")
+	if err != nil {
+		t.Fatal("parse flat search:", err)
+	}
+	if !inSet("flat", flatIntent.PropertyTypes...) || inSet("apartment", flatIntent.PropertyTypes...) {
+		t.Fatalf("flat search compatibility mismatch: types=%v", flatIntent.PropertyTypes)
+	}
+
+	courtIntent, err := parseIntentFromDB(ctx, db, "Ari Court")
+	if err != nil {
+		t.Fatal("parse Court apartment search:", err)
+	}
+	if !inSet("apartment", courtIntent.PropertyTypes...) {
+		t.Fatalf("Court apartment search mismatch: types=%v", courtIntent.PropertyTypes)
+	}
 }
 
 func cleanupStaleListingMatrixRows(db *sql.DB) error {
@@ -225,10 +260,12 @@ func integrationListingPayload(
 		spaceTypeCode = category.spaceTypes[0]
 		allowedBusinessTypes = []string{"retail", "food_service"}
 	}
+	categoryDetails := integrationCategoryDetails(category)
 	return createListingRequest{
 		DiscoveryChannelCode:  category.discoveryChannel,
 		PropertyGroupCode:     category.propertyGroup,
 		PropertyTypeCode:      category.propertyType,
+		AccommodationModel:    category.expectedAccommodationModel,
 		ListingScope:          category.listingScope,
 		UseCaseCodes:          category.useCases,
 		OfferTypes:            category.offerTypes,
@@ -256,6 +293,7 @@ func integrationListingPayload(
 		MinimumLeaseMonths:    "12",
 		PetAllowed:            true,
 		PetPolicyCode:         "allowed",
+		UtilitiesIncluded:     category.discoveryChannel == "rooms",
 		ContactName:           "MapXProp DB Test",
 		ContactPhone:          "0800000000",
 		ContactPhoneSecondary: "0811111111",
@@ -277,18 +315,60 @@ func integrationListingPayload(
 		Amenities:             []string{"air_conditioning", "parking"},
 		PriceOnRequest:        false,
 		Currency:              "THB",
-		CategoryDetails: map[string]any{
-			"integration_category":    category.propertyType,
-			"selected_photo_count":    "1",
-			"selected_video_count":    "1",
-			"selected_panorama_count": "1",
-		},
+		CategoryDetails:       categoryDetails,
 		MediaItems: []listingMediaInput{
 			{URL: imageURL, MediaType: "image"},
 			{URL: videoURL, MediaType: "video"},
 			{URL: panoramaURL, MediaType: "360"},
 		},
 	}
+}
+
+func integrationCategoryDetails(category listingCategoryIntegrationCase) map[string]any {
+	details := map[string]any{
+		"integration_category":    category.propertyType,
+		"selected_photo_count":    "1",
+		"selected_video_count":    "1",
+		"selected_panorama_count": "1",
+	}
+	if category.discoveryChannel != "rooms" {
+		return details
+	}
+
+	details["details_status"] = "structured"
+	details["room_type_code"] = "studio"
+	details["available_from"] = "2026-09-15"
+	details["available_room_count"] = "2"
+	details["bathroom_type"] = "private"
+	details["security_deposit_amount"] = "25000"
+	details["advance_rent_months"] = "1"
+	details["water_billing_type"] = "per_unit"
+	details["electricity_billing_type"] = "government_rate"
+	details["visitor_policy"] = "Register visitors at reception"
+
+	switch category.propertyType {
+	case "rental_room":
+		details["shared_facilities"] = []string{"kitchen", "entrance"}
+		details["owner_lives_on_site"] = "yes"
+	case "apartment":
+		details["room_inventory_details"] = "Studio 24 sqm, 2 rooms available"
+	case "dormitory":
+		details["resident_groups"] = []string{"students", "workers"}
+		details["curfew_time"] = "24-hour access"
+	case "flat":
+		details["managing_agency"] = "National Housing Authority"
+		details["occupancy_right_type"] = "rent"
+	case "serviced_apartment":
+		details["services_included"] = []string{"housekeeping", "linen_change", "reception"}
+		details["housekeeping_frequency"] = "twice a week"
+	case "monthly_hotel":
+		details["services_included"] = []string{"housekeeping", "reception", "internet"}
+		details["cancellation_policy"] = "Seven days notice"
+	case "condo":
+		details["common_fee_included"] = "yes"
+		details["juristic_rules"] = "Register every resident"
+	}
+	return details
 }
 
 func createIntegrationListing(t *testing.T, app *fiber.App, accessToken string, payload createListingRequest) int64 {
@@ -338,16 +418,22 @@ func assertIntegrationListingPersisted(
 		title, description, secondaryPhone, instagram      string
 		province, district, subdistrict, road, postalCode  string
 		categoryCode, categoryMarker, submissionMode       string
+		accommodationModel, categoryAccommodationModel     string
 		latitude, longitude                                float64
 		images, videos, panoramas, primaryImages           int
 		videoRoles, panoramaRoles, spaceTypes, amenities   int
 		useCases, offers, currencyOffers                   int
 		discoveryChannels, businessDetails                 int
 		priceOnRequest                                     bool
+		rawCategoryDetails                                 []byte
+		maxOccupants, minimumLeaseMonths                   int
+		furnishingStatus, petPolicyCode                    string
+		utilitiesIncluded                                  bool
 	)
 	err := db.QueryRow(`
 		SELECT
 			l.property_type_code,
+			COALESCE(l.accommodation_model, ''),
 			l.listing_scope,
 			l.usage_type,
 			l.listing_type,
@@ -360,12 +446,19 @@ func assertIntegrationListingPersisted(
 			COALESCE(l.subdistrict_name, ''),
 			COALESCE(l.road, ''),
 			COALESCE(l.postal_code, ''),
+			COALESCE(l.max_occupants, 0),
+			COALESCE(l.minimum_lease_months, 0),
+			COALESCE(l.furnishing_status, ''),
+			COALESCE(l.pet_policy_code, ''),
+			l.utilities_included,
 			l.latitude,
 			l.longitude,
 			COALESCE(lcd.category_code, ''),
 			COALESCE(lcd.details->>'integration_category', ''),
 			COALESCE(lcd.details->>'submission_mode', ''),
+			COALESCE(lcd.details->>'accommodation_model', ''),
 			COALESCE((lcd.details->>'price_on_request')::boolean, false),
+			COALESCE(lcd.details, '{}'::jsonb),
 			(SELECT count(*) FROM public.listing_media WHERE listing_id = l.id AND media_type = 'image'),
 			(SELECT count(*) FROM public.listing_media WHERE listing_id = l.id AND media_type = 'video'),
 			(SELECT count(*) FROM public.listing_media WHERE listing_id = l.id AND media_type = '360'),
@@ -384,6 +477,7 @@ func assertIntegrationListingPersisted(
 		WHERE l.id = $1 AND l.user_id = $2
 	`, listingID, userID, category.discoveryChannel).Scan(
 		&propertyType,
+		&accommodationModel,
 		&listingScope,
 		&usageType,
 		&listingType,
@@ -396,12 +490,19 @@ func assertIntegrationListingPersisted(
 		&subdistrict,
 		&road,
 		&postalCode,
+		&maxOccupants,
+		&minimumLeaseMonths,
+		&furnishingStatus,
+		&petPolicyCode,
+		&utilitiesIncluded,
 		&latitude,
 		&longitude,
 		&categoryCode,
 		&categoryMarker,
 		&submissionMode,
+		&categoryAccommodationModel,
 		&priceOnRequest,
+		&rawCategoryDetails,
 		&images,
 		&videos,
 		&panoramas,
@@ -420,8 +521,12 @@ func assertIntegrationListingPersisted(
 		t.Fatal(err)
 	}
 
-	if propertyType != category.propertyType || listingScope != category.listingScope || usageType != category.usageType || listingType != category.listingType {
-		t.Fatalf("classification mismatch: type=%q scope=%q usage=%q listing=%q", propertyType, listingScope, usageType, listingType)
+	expectedPropertyType := category.propertyType
+	if category.expectedPropertyType != "" {
+		expectedPropertyType = category.expectedPropertyType
+	}
+	if propertyType != expectedPropertyType || accommodationModel != category.expectedAccommodationModel || listingScope != category.listingScope || usageType != category.usageType || listingType != category.listingType {
+		t.Fatalf("classification mismatch: type=%q accommodation=%q scope=%q usage=%q listing=%q", propertyType, accommodationModel, listingScope, usageType, listingType)
 	}
 	if title != payload.Title || description != payload.Description {
 		t.Fatalf("content mismatch: title=%q description=%q", title, description)
@@ -435,8 +540,14 @@ func assertIntegrationListingPersisted(
 	if latitude != 13.73 || longitude != 100.57 {
 		t.Fatalf("coordinate mismatch: %f,%f", latitude, longitude)
 	}
-	if categoryCode != category.propertyType || categoryMarker != category.propertyType || submissionMode != "minimum" || priceOnRequest {
-		t.Fatalf("category details mismatch: code=%q marker=%q mode=%q priceOnRequest=%v", categoryCode, categoryMarker, submissionMode, priceOnRequest)
+	if categoryCode != expectedPropertyType || categoryMarker != category.propertyType || categoryAccommodationModel != category.expectedAccommodationModel || submissionMode != "minimum" || priceOnRequest {
+		t.Fatalf("category details mismatch: code=%q marker=%q accommodation=%q mode=%q priceOnRequest=%v", categoryCode, categoryMarker, categoryAccommodationModel, submissionMode, priceOnRequest)
+	}
+	if category.discoveryChannel == "rooms" {
+		if maxOccupants != 4 || minimumLeaseMonths != 12 || furnishingStatus != "fully_furnished" || petPolicyCode != "allowed" || !utilitiesIncluded {
+			t.Fatalf("monthly-stay core fields mismatch: occupants=%d lease=%d furnishing=%q pets=%q utilities=%v", maxOccupants, minimumLeaseMonths, furnishingStatus, petPolicyCode, utilitiesIncluded)
+		}
+		assertMonthlyStayDetailsPersisted(t, rawCategoryDetails, category.propertyType)
 	}
 	if images != 1 || videos != 1 || panoramas != 1 || primaryImages != 1 || videoRoles != 1 || panoramaRoles != 1 {
 		t.Fatalf("media mismatch: images=%d videos=%d panoramas=%d primary=%d videoRoles=%d panoramaRoles=%d", images, videos, panoramas, primaryImages, videoRoles, panoramaRoles)
@@ -463,6 +574,47 @@ func assertIntegrationListingPersisted(
 	}
 	for _, amenityCode := range payload.Amenities {
 		assertIntegrationRelation(t, db, `SELECT count(*) FROM public.listing_amenities WHERE listing_id = $1 AND amenity_code = $2`, listingID, amenityCode)
+	}
+}
+
+func assertMonthlyStayDetailsPersisted(t *testing.T, rawDetails []byte, propertyType string) {
+	t.Helper()
+	var details map[string]any
+	if err := json.Unmarshal(rawDetails, &details); err != nil {
+		t.Fatal("decode monthly-stay category details:", err)
+	}
+	required := []string{
+		"details_status",
+		"room_type_code",
+		"available_from",
+		"available_room_count",
+		"bathroom_type",
+		"security_deposit_amount",
+		"advance_rent_months",
+		"water_billing_type",
+		"electricity_billing_type",
+		"visitor_policy",
+	}
+	switch propertyType {
+	case "rental_room":
+		required = append(required, "shared_facilities", "owner_lives_on_site")
+	case "apartment":
+		required = append(required, "room_inventory_details")
+	case "dormitory":
+		required = append(required, "resident_groups", "curfew_time")
+	case "flat":
+		required = append(required, "managing_agency", "occupancy_right_type")
+	case "serviced_apartment":
+		required = append(required, "services_included", "housekeeping_frequency")
+	case "monthly_hotel":
+		required = append(required, "services_included", "cancellation_policy")
+	case "condo":
+		required = append(required, "common_fee_included", "juristic_rules")
+	}
+	for _, key := range required {
+		if value, ok := details[key]; !ok || value == nil || value == "" {
+			t.Fatalf("monthly-stay detail %q was not persisted for %s: %#v", key, propertyType, details)
+		}
 	}
 }
 
@@ -511,8 +663,17 @@ func assertIntegrationListingDetailReadable(
 	if err := json.NewDecoder(response.Body).Decode(&detail); err != nil {
 		t.Fatal(err)
 	}
-	if detail.PropertyTypeCode != category.propertyType || detail.Currency != "THB" {
+	expectedPropertyType := category.propertyType
+	if category.expectedPropertyType != "" {
+		expectedPropertyType = category.expectedPropertyType
+	}
+	if detail.PropertyTypeCode != expectedPropertyType || detail.Currency != "THB" {
 		t.Fatalf("listing detail classification/currency mismatch: type=%q currency=%q", detail.PropertyTypeCode, detail.Currency)
+	}
+	if category.discoveryChannel == "rooms" {
+		if marker, ok := detail.CategoryDetails["integration_category"].(string); !ok || marker != category.propertyType {
+			t.Fatalf("listing detail category data mismatch: %#v", detail.CategoryDetails)
+		}
 	}
 	if len(detail.Amenities) != 2 || detail.Amenities[0] != "air_conditioning" || detail.Amenities[1] != "parking" {
 		t.Fatalf("listing detail amenities mismatch: %#v", detail.Amenities)

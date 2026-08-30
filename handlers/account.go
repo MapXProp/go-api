@@ -25,22 +25,23 @@ type changeMyPasswordRequest struct {
 }
 
 type myListingResponse struct {
-	ID               int64      `json:"id"`
-	PublicListingID  string     `json:"public_listing_id"`
-	Slug             string     `json:"slug"`
-	Title            string     `json:"title"`
-	PropertyTypeCode string     `json:"property_type_code"`
-	ListingType      string     `json:"listing_type"`
-	ListingStatus    string     `json:"listing_status"`
-	ModerationStatus string     `json:"moderation_status"`
-	Address          string     `json:"address"`
-	Price            *float64   `json:"price,omitempty"`
-	PriceUnit        string     `json:"price_unit"`
-	Currency         string     `json:"currency"`
-	PrimaryImageURL  string     `json:"primary_image_url"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-	PublishedAt      *time.Time `json:"published_at,omitempty"`
+	ID                 int64      `json:"id"`
+	PublicListingID    string     `json:"public_listing_id"`
+	Slug               string     `json:"slug"`
+	Title              string     `json:"title"`
+	PropertyTypeCode   string     `json:"property_type_code"`
+	AccommodationModel string     `json:"accommodation_model"`
+	ListingType        string     `json:"listing_type"`
+	ListingStatus      string     `json:"listing_status"`
+	ModerationStatus   string     `json:"moderation_status"`
+	Address            string     `json:"address"`
+	Price              *float64   `json:"price,omitempty"`
+	PriceUnit          string     `json:"price_unit"`
+	Currency           string     `json:"currency"`
+	PrimaryImageURL    string     `json:"primary_image_url"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+	PublishedAt        *time.Time `json:"published_at,omitempty"`
 }
 
 func authenticatedAccountRequest(c *fiber.Ctx, db *sql.DB) (*accessTokenClaims, context.Context, context.CancelFunc, error) {
@@ -213,6 +214,7 @@ func GetMyListings(db *sql.DB) fiber.Handler {
 				COALESCE(NULLIF(l.slug, ''), 'listing-' || l.id::text),
 				l.title,
 				l.property_type_code,
+				COALESCE(l.accommodation_model, ''),
 				l.listing_type,
 				l.listing_status,
 				l.moderation_status,
@@ -282,6 +284,7 @@ func GetMyListings(db *sql.DB) fiber.Handler {
 				&item.Slug,
 				&item.Title,
 				&item.PropertyTypeCode,
+				&item.AccommodationModel,
 				&item.ListingType,
 				&item.ListingStatus,
 				&item.ModerationStatus,

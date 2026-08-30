@@ -61,38 +61,39 @@ type searchIntent struct {
 }
 
 type searchListing struct {
-	ID               int64      `json:"id"`
-	PublicListingID  string     `json:"public_listing_id"`
-	Slug             string     `json:"slug"`
-	Title            string     `json:"title"`
-	Description      string     `json:"description"`
-	PropertyTypeCode string     `json:"property_type_code"`
-	ListingType      string     `json:"listing_type"`
-	ProjectName      string     `json:"project_name"`
-	Address          string     `json:"address"`
-	Province         string     `json:"province"`
-	District         string     `json:"district"`
-	SalePrice        *float64   `json:"sale_price,omitempty"`
-	RentPriceMonthly *float64   `json:"rent_price_monthly,omitempty"`
-	BedroomCount     *int       `json:"bedroom_count,omitempty"`
-	BathroomCount    *int       `json:"bathroom_count,omitempty"`
-	UsableAreaSqm    *float64   `json:"usable_area_sqm,omitempty"`
-	LandAreaSqm      *float64   `json:"land_area_sqm,omitempty"`
-	PetAllowed       bool       `json:"pet_allowed"`
-	Latitude         *float64   `json:"latitude,omitempty"`
-	Longitude        *float64   `json:"longitude,omitempty"`
-	PublishedAt      *time.Time `json:"published_at,omitempty"`
-	SpaceTypeCode    string     `json:"space_type_code"`
-	SpaceTypeCodes   []string   `json:"space_type_codes"`
-	PrimaryImageURL  string     `json:"primary_image_url"`
-	EventName        string     `json:"event_name"`
-	EventFloorLabel  string     `json:"event_floor_label"`
-	EventRoundCount  int        `json:"event_round_count"`
-	EventStartsOn    *time.Time `json:"event_starts_on,omitempty"`
-	EventEndsOn      *time.Time `json:"event_ends_on,omitempty"`
-	PriceOnRequest   bool       `json:"price_on_request"`
-	IsVerified       bool       `json:"is_verified"`
-	SourceType       string     `json:"source_type"`
+	ID                 int64      `json:"id"`
+	PublicListingID    string     `json:"public_listing_id"`
+	Slug               string     `json:"slug"`
+	Title              string     `json:"title"`
+	Description        string     `json:"description"`
+	PropertyTypeCode   string     `json:"property_type_code"`
+	AccommodationModel string     `json:"accommodation_model"`
+	ListingType        string     `json:"listing_type"`
+	ProjectName        string     `json:"project_name"`
+	Address            string     `json:"address"`
+	Province           string     `json:"province"`
+	District           string     `json:"district"`
+	SalePrice          *float64   `json:"sale_price,omitempty"`
+	RentPriceMonthly   *float64   `json:"rent_price_monthly,omitempty"`
+	BedroomCount       *int       `json:"bedroom_count,omitempty"`
+	BathroomCount      *int       `json:"bathroom_count,omitempty"`
+	UsableAreaSqm      *float64   `json:"usable_area_sqm,omitempty"`
+	LandAreaSqm        *float64   `json:"land_area_sqm,omitempty"`
+	PetAllowed         bool       `json:"pet_allowed"`
+	Latitude           *float64   `json:"latitude,omitempty"`
+	Longitude          *float64   `json:"longitude,omitempty"`
+	PublishedAt        *time.Time `json:"published_at,omitempty"`
+	SpaceTypeCode      string     `json:"space_type_code"`
+	SpaceTypeCodes     []string   `json:"space_type_codes"`
+	PrimaryImageURL    string     `json:"primary_image_url"`
+	EventName          string     `json:"event_name"`
+	EventFloorLabel    string     `json:"event_floor_label"`
+	EventRoundCount    int        `json:"event_round_count"`
+	EventStartsOn      *time.Time `json:"event_starts_on,omitempty"`
+	EventEndsOn        *time.Time `json:"event_ends_on,omitempty"`
+	PriceOnRequest     bool       `json:"price_on_request"`
+	IsVerified         bool       `json:"is_verified"`
+	SourceType         string     `json:"source_type"`
 }
 
 type searchBounds struct {
@@ -406,6 +407,7 @@ func buildSearchChips(intent searchIntent, aliases []searchAlias) []searchChip {
 	appendValues("use_case", intent.UseCases)
 	appendValues("offer_type", intent.OfferTypes)
 	appendValues("space_type", intent.SpaceTypes)
+	appendValues("feature", intent.Features)
 	for _, location := range intent.Locations {
 		label := location.NameTH
 		if intent.Locale == "en" {
@@ -667,6 +669,8 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		for _, feature := range intent.Features {
 			if feature == "pet_allowed" {
 				where = append(where, "l.pet_allowed = true")
+			} else if feature == "serviced" {
+				where = append(where, "l.accommodation_model = 'serviced'")
 			}
 		}
 		if intent.MinPrice != nil || intent.MaxPrice != nil {
@@ -702,7 +706,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			orderBy = "similarity(l.search_text, " + queryArg + ") DESC, l.published_at DESC"
 		}
 		sqlQuery := `SELECT l.id, l.public_listing_id::text, COALESCE(l.slug,''), l.title,
-			COALESCE(l.description,''), l.property_type_code, l.listing_type,
+			COALESCE(l.description,''), l.property_type_code, COALESCE(l.accommodation_model,''), l.listing_type,
 			COALESCE(l.custom_project_name,''), trim(concat_ws(' ',l.address_line1,l.address_line2)),
 			COALESCE(l.province_name,''), COALESCE(l.district_name,''),
 			l.sale_price, l.rent_price_monthly, l.bedroom_count, l.bathroom_count,
@@ -757,7 +761,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			var sale, rent, area, landArea, lat, lng sql.NullFloat64
 			var beds, baths sql.NullInt64
 			var published, eventStartsOn, eventEndsOn sql.NullTime
-			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.Description, &item.PropertyTypeCode, &item.ListingType, &item.ProjectName, &item.Address, &item.Province, &item.District, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.IsVerified, &item.SourceType, &total); err != nil {
+			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.Description, &item.PropertyTypeCode, &item.AccommodationModel, &item.ListingType, &item.ProjectName, &item.Address, &item.Province, &item.District, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.IsVerified, &item.SourceType, &total); err != nil {
 				return c.Status(500).JSON(fiber.Map{"error": "cannot read properties"})
 			}
 			if sale.Valid {

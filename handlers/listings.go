@@ -19,6 +19,7 @@ type createListingRequest struct {
 	DiscoveryChannelCode    string              `json:"discovery_channel_code"`
 	PropertyGroupCode       string              `json:"property_group_code"`
 	PropertyTypeCode        string              `json:"property_type_code"`
+	AccommodationModel      string              `json:"accommodation_model"`
 	ListingScope            string              `json:"listing_scope"`
 	UseCaseCodes            []string            `json:"use_case_codes"`
 	OfferTypes              []string            `json:"offer_types"`
@@ -143,7 +144,7 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				listing_status, moderation_status, published_at,
 				business_type_code, space_type_code, target_tenant_type, price_unit,
 				key_money_amount, service_fee_monthly, utilities_included,
-				is_sublease, owner_permission_required, source_channel, listing_scope,
+				is_sublease, owner_permission_required, source_channel, listing_scope, accommodation_model,
 				contact_phone_secondary, instagram_handle,
 				road, province_name, district_name, subdistrict_name
 			) VALUES (
@@ -159,9 +160,9 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				'pending', 'pending', NULL,
 				$36, $37, $38, $39,
 				$40, $41, $42,
-				$43, $44, 'web', $45,
-				$46, $47,
-				$48, $49, $50, $51
+				$43, $44, 'web', $45, $46,
+				$47, $48,
+				$49, $50, $51, $52
 			)
 			RETURNING id, public_listing_id::text
 		`,
@@ -210,6 +211,7 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			req.IsSublease,
 			req.OwnerPermissionRequired,
 			req.ListingScope,
+			listingNullString(req.AccommodationModel),
 			listingNullString(req.ContactPhoneSecondary),
 			listingNullString(req.InstagramHandle),
 			listingNullString(req.Road),
@@ -431,6 +433,7 @@ func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req 
 		spaceTypeCount int
 		amenityCount   int
 		currencyCount  int
+		accommodation  string
 		hasLatitude    bool
 		hasLongitude   bool
 	)
@@ -441,6 +444,7 @@ func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req 
 			COALESCE(province_name, ''),
 			COALESCE(district_name, ''),
 			COALESCE(subdistrict_name, ''),
+			COALESCE(accommodation_model, ''),
 			latitude IS NOT NULL,
 			longitude IS NOT NULL,
 			(SELECT count(*) FROM public.listing_media WHERE listing_id = $1 AND is_active = true),
@@ -455,6 +459,7 @@ func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req 
 		&province,
 		&district,
 		&subdistrict,
+		&accommodation,
 		&hasLatitude,
 		&hasLongitude,
 		&mediaCount,
@@ -470,6 +475,9 @@ func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req 
 	}
 	if province != req.ProvinceName || district != req.DistrictName || subdistrict != req.SubdistrictName {
 		return fmt.Errorf("structured address was not persisted")
+	}
+	if accommodation != req.AccommodationModel {
+		return fmt.Errorf("accommodation model was not persisted")
 	}
 	if mediaCount != len(req.MediaItems) {
 		return fmt.Errorf("media count mismatch: got %d want %d", mediaCount, len(req.MediaItems))
@@ -493,6 +501,19 @@ func (req *createListingRequest) normalize() {
 	req.DiscoveryChannelCode = cleanCode(req.DiscoveryChannelCode, "")
 	req.PropertyGroupCode = cleanCode(req.PropertyGroupCode, "residential")
 	req.PropertyTypeCode = cleanCode(req.PropertyTypeCode, "condo")
+	req.AccommodationModel = cleanCode(req.AccommodationModel, "")
+	switch req.PropertyTypeCode {
+	case "serviced_apartment":
+		req.PropertyTypeCode = "apartment"
+		req.AccommodationModel = "serviced"
+	}
+	if req.PropertyTypeCode == "apartment" {
+		if req.AccommodationModel == "" {
+			req.AccommodationModel = "standard"
+		}
+	} else {
+		req.AccommodationModel = ""
+	}
 	req.ListingScope = cleanCode(req.ListingScope, "whole_property")
 	req.UseCaseCodes = cleanStringSlice(req.UseCaseCodes)
 	req.OfferTypes = cleanStringSlice(req.OfferTypes)
@@ -550,6 +571,11 @@ func (req *createListingRequest) normalize() {
 	}
 	req.CategoryDetails["price_on_request"] = req.PriceOnRequest
 	req.CategoryDetails["submission_mode"] = "minimum"
+	if req.PropertyTypeCode == "apartment" {
+		req.CategoryDetails["accommodation_model"] = req.AccommodationModel
+	} else {
+		delete(req.CategoryDetails, "accommodation_model")
+	}
 
 	if len(req.UseCaseCodes) == 0 {
 		switch req.UsageType {
@@ -580,8 +606,14 @@ func (req createListingRequest) validate() error {
 	if req.DiscoveryChannelCode != "" && !inSet(req.DiscoveryChannelCode, "homes", "rooms", "business") {
 		return fmt.Errorf("invalid discovery channel")
 	}
-	if !inSet(req.PropertyTypeCode, "condo", "house", "detached_house", "semi_detached_house", "townhouse", "shophouse", "home_office", "apartment", "dormitory", "rental_room", "flat", "serviced_apartment", "monthly_hotel", "office", "retail_space", "warehouse", "factory", "land") {
+	if !inSet(req.PropertyTypeCode, "condo", "house", "detached_house", "semi_detached_house", "townhouse", "shophouse", "home_office", "apartment", "dormitory", "rental_room", "flat", "monthly_hotel", "office", "retail_space", "warehouse", "factory", "land") {
 		return fmt.Errorf("invalid property type")
+	}
+	if req.PropertyTypeCode == "apartment" && req.AccommodationModel != "" && !inSet(req.AccommodationModel, "standard", "serviced") {
+		return fmt.Errorf("invalid accommodation model")
+	}
+	if req.PropertyTypeCode != "apartment" && req.AccommodationModel != "" {
+		return fmt.Errorf("accommodation model is only valid for apartment listings")
 	}
 	if !inSet(req.ListingScope, "single_unit", "whole_property", "multi_unit", "land_plot", "space_slot") {
 		return fmt.Errorf("invalid listing scope")
