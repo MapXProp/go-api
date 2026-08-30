@@ -100,6 +100,7 @@ type listingDetailResponse struct {
 	ListingType      string                           `json:"listing_type"`
 	ListingScope     string                           `json:"listing_scope"`
 	SpaceTypeCode    string                           `json:"space_type_code"`
+	SpaceTypeCodes   []string                         `json:"space_type_codes"`
 	ProjectName      string                           `json:"project_name"`
 	BuildingName     string                           `json:"building_name"`
 	Address          string                           `json:"address"`
@@ -227,6 +228,35 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 		}
 		if expiresAt.Valid {
 			item.ExpiresAt = &expiresAt.Time
+		}
+
+		item.SpaceTypeCodes = make([]string, 0, 3)
+		spaceTypeRows, err := db.QueryContext(ctx, `
+			SELECT space_type_code
+			FROM public.listing_space_types
+			WHERE listing_id = $1
+			ORDER BY is_primary DESC, sort_order, space_type_code
+		`, item.ID)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read listing space types"})
+		}
+		for spaceTypeRows.Next() {
+			var spaceTypeCode string
+			if err := spaceTypeRows.Scan(&spaceTypeCode); err != nil {
+				spaceTypeRows.Close()
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read listing space types"})
+			}
+			item.SpaceTypeCodes = append(item.SpaceTypeCodes, spaceTypeCode)
+		}
+		if err := spaceTypeRows.Err(); err != nil {
+			spaceTypeRows.Close()
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read listing space types"})
+		}
+		if err := spaceTypeRows.Close(); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot finish reading listing space types"})
+		}
+		if len(item.SpaceTypeCodes) == 0 && item.SpaceTypeCode != "" {
+			item.SpaceTypeCodes = append(item.SpaceTypeCodes, item.SpaceTypeCode)
 		}
 
 		item.Media = make([]listingMediaResponse, 0)

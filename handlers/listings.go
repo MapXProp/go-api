@@ -56,6 +56,7 @@ type createListingRequest struct {
 	Longitude               string         `json:"longitude"`
 	BusinessTypeCode        string         `json:"business_type_code"`
 	SpaceTypeCode           string         `json:"space_type_code"`
+	SpaceTypeCodes          []string       `json:"space_type_codes"`
 	TargetTenantType        string         `json:"target_tenant_type"`
 	PriceUnit               string         `json:"price_unit"`
 	KeyMoneyAmount          string         `json:"key_money_amount"`
@@ -223,6 +224,21 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			return c.Status(500).JSON(fiber.Map{"error": "cannot create category details"})
 		}
 
+		for index, spaceTypeCode := range req.SpaceTypeCodes {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO public.listing_space_types (
+					listing_id, space_type_code, is_primary, sort_order
+				) VALUES ($1, $2, $3, $4)
+				ON CONFLICT (listing_id, space_type_code) DO UPDATE SET
+					is_primary = EXCLUDED.is_primary,
+					sort_order = EXCLUDED.sort_order,
+					updated_at = now()
+			`, listingID, spaceTypeCode, index == 0, index); err != nil {
+				fmt.Println("Create Listing Space Type Error:", err)
+				return c.Status(500).JSON(fiber.Map{"error": "cannot create listing space types"})
+			}
+		}
+
 		for index, mediaURL := range req.MediaURLs {
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO public.listing_media (
@@ -363,6 +379,19 @@ func (req *createListingRequest) normalize() {
 	req.UsageType = cleanCode(req.UsageType, "residence")
 	req.ListingType = cleanCode(req.ListingType, "rent")
 	req.SpaceTypeCode = cleanCode(req.SpaceTypeCode, "")
+	req.SpaceTypeCodes = cleanStringSlice(req.SpaceTypeCodes)
+	if req.SpaceTypeCode == "" && len(req.SpaceTypeCodes) > 0 {
+		req.SpaceTypeCode = req.SpaceTypeCodes[0]
+	}
+	if req.SpaceTypeCode != "" {
+		orderedSpaceTypes := []string{req.SpaceTypeCode}
+		for _, spaceTypeCode := range req.SpaceTypeCodes {
+			if spaceTypeCode != req.SpaceTypeCode {
+				orderedSpaceTypes = append(orderedSpaceTypes, spaceTypeCode)
+			}
+		}
+		req.SpaceTypeCodes = orderedSpaceTypes
+	}
 	req.BusinessTypeCode = cleanCode(req.BusinessTypeCode, "")
 	req.PriceUnit = cleanCode(req.PriceUnit, "")
 	req.Title = strings.TrimSpace(req.Title)
@@ -439,6 +468,30 @@ func (req createListingRequest) validate() error {
 		if !inSet(offerType, "sale", "rent", "sublease", "business_transfer", "event_booking") {
 			return fmt.Errorf("invalid offer type")
 		}
+	}
+	if len(req.SpaceTypeCodes) > 3 {
+		return fmt.Errorf("a listing can have at most three space types")
+	}
+	for _, spaceTypeCode := range req.SpaceTypeCodes {
+		if !inSet(
+			spaceTypeCode,
+			"standalone_shop",
+			"market_stall",
+			"mall_kiosk",
+			"mall_shop",
+			"food_court_counter",
+			"school_canteen",
+			"office_canteen",
+			"dormitory_shop",
+			"street_food_space",
+			"shophouse_ground_floor",
+			"event_booth",
+		) {
+			return fmt.Errorf("invalid space type")
+		}
+	}
+	if len(req.SpaceTypeCodes) > 0 && req.PropertyTypeCode != "retail_space" {
+		return fmt.Errorf("space types are only valid for retail space listings")
 	}
 	return nil
 }

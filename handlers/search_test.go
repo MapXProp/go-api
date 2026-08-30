@@ -70,6 +70,21 @@ func TestInterpretSearchMarketStallAndMultiplePropertyTypes(t *testing.T) {
 	}
 }
 
+func TestInterpretSearchOverlappingSpaceTypesFromOnePhrase(t *testing.T) {
+	aliases := []searchAlias{
+		{Phrase: "บูธในห้าง", IntentType: "space_type", IntentValue: "mall_kiosk", Locale: "th", Priority: 125},
+		{Phrase: "บูธในห้าง", IntentType: "space_type", IntentValue: "event_booth", Locale: "th", Priority: 125},
+	}
+
+	intent := interpretSearch("บูธในห้าง", aliases, nil)
+	if len(intent.SpaceTypes) != 2 || intent.SpaceTypes[0] != "mall_kiosk" || intent.SpaceTypes[1] != "event_booth" {
+		t.Fatalf("space types: %#v", intent.SpaceTypes)
+	}
+	if intent.FreeText != "" {
+		t.Fatalf("free text: %q", intent.FreeText)
+	}
+}
+
 func TestInterpretSearchDiscoveryChannel(t *testing.T) {
 	aliases := []searchAlias{
 		{Phrase: "ห้องเช่ารายเดือน", IntentType: "discovery_channel", IntentValue: "rooms", Locale: "th", Priority: 110},

@@ -83,6 +83,7 @@ type searchListing struct {
 	Longitude        *float64   `json:"longitude,omitempty"`
 	PublishedAt      *time.Time `json:"published_at,omitempty"`
 	SpaceTypeCode    string     `json:"space_type_code"`
+	SpaceTypeCodes   []string   `json:"space_type_codes"`
 	PrimaryImageURL  string     `json:"primary_image_url"`
 	EventName        string     `json:"event_name"`
 	EventFloorLabel  string     `json:"event_floor_label"`
@@ -257,21 +258,14 @@ func interpretSearch(query string, aliases []searchAlias, locations []searchLoca
 		if phrase == "" || !strings.Contains(remaining, phrase) {
 			continue
 		}
-		switch alias.IntentType {
-		case "property_type":
-			intent.PropertyTypes = appendUnique(intent.PropertyTypes, alias.IntentValue)
-		case "property_group":
-			intent.PropertyGroups = appendUnique(intent.PropertyGroups, alias.IntentValue)
-		case "discovery_channel":
-			intent.DiscoveryChannels = appendUnique(intent.DiscoveryChannels, alias.IntentValue)
-		case "use_case":
-			intent.UseCases = appendUnique(intent.UseCases, alias.IntentValue)
-		case "offer_type":
-			intent.OfferTypes = appendUnique(intent.OfferTypes, alias.IntentValue)
-		case "space_type":
-			intent.SpaceTypes = appendUnique(intent.SpaceTypes, alias.IntentValue)
-		case "feature":
-			intent.Features = appendUnique(intent.Features, alias.IntentValue)
+
+		// One phrase can intentionally describe overlapping facets. For example,
+		// "บูธในห้าง" is both a mall space and an event booth. Apply every alias
+		// with the same phrase before consuming the phrase from the query.
+		for _, matchingAlias := range aliases {
+			if normalizeSearchText(matchingAlias.Phrase) == phrase {
+				applySearchAlias(&intent, matchingAlias)
+			}
 		}
 		remaining = strings.ReplaceAll(remaining, phrase, " ")
 	}
@@ -352,6 +346,25 @@ func interpretSearch(query string, aliases []searchAlias, locations []searchLoca
 	}
 	intent.Chips = buildSearchChips(intent, aliases)
 	return intent
+}
+
+func applySearchAlias(intent *searchIntent, alias searchAlias) {
+	switch alias.IntentType {
+	case "property_type":
+		intent.PropertyTypes = appendUnique(intent.PropertyTypes, alias.IntentValue)
+	case "property_group":
+		intent.PropertyGroups = appendUnique(intent.PropertyGroups, alias.IntentValue)
+	case "discovery_channel":
+		intent.DiscoveryChannels = appendUnique(intent.DiscoveryChannels, alias.IntentValue)
+	case "use_case":
+		intent.UseCases = appendUnique(intent.UseCases, alias.IntentValue)
+	case "offer_type":
+		intent.OfferTypes = appendUnique(intent.OfferTypes, alias.IntentValue)
+	case "space_type":
+		intent.SpaceTypes = appendUnique(intent.SpaceTypes, alias.IntentValue)
+	case "feature":
+		intent.Features = appendUnique(intent.Features, alias.IntentValue)
+	}
 }
 
 func buildSearchChips(intent searchIntent, aliases []searchAlias) []searchChip {
@@ -621,7 +634,14 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			))`)
 		}
 		if len(intent.SpaceTypes) > 0 {
-			categoryFilters = append(categoryFilters, "EXISTS (SELECT 1 FROM public.listing_business_details lbd WHERE lbd.listing_id=l.id AND lbd.venue_type_code = ANY("+arg(pq.Array(intent.SpaceTypes))+"))")
+			spaceTypesArg := arg(pq.Array(intent.SpaceTypes))
+			categoryFilters = append(categoryFilters, `(EXISTS (
+				SELECT 1 FROM public.listing_space_types lst
+				WHERE lst.listing_id=l.id AND lst.space_type_code = ANY(`+spaceTypesArg+`)
+			) OR EXISTS (
+				SELECT 1 FROM public.listing_business_details lbd
+				WHERE lbd.listing_id=l.id AND lbd.venue_type_code = ANY(`+spaceTypesArg+`)
+			))`)
 		}
 		if len(categoryFilters) > 0 {
 			where = append(where, "("+strings.Join(categoryFilters, " OR ")+")")
@@ -687,7 +707,9 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			COALESCE(l.province_name,''), COALESCE(l.district_name,''),
 			l.sale_price, l.rent_price_monthly, l.bedroom_count, l.bathroom_count,
 			l.usable_area_sqm, l.land_area_sqm, l.pet_allowed, l.latitude, l.longitude, l.published_at,
-			COALESCE(l.space_type_code,''), COALESCE(pm.media_url,''),
+			COALESCE(l.space_type_code,''),
+			COALESCE(lst.space_type_codes, CASE WHEN NULLIF(l.space_type_code, '') IS NULL THEN ARRAY[]::text[] ELSE ARRAY[l.space_type_code] END),
+			COALESCE(pm.media_url,''),
 			COALESCE(led.event_name,''), COALESCE(led.venue_floor_label,''),
 			COALESCE(er.round_count,0), er.starts_on, er.ends_on,
 			COALESCE((lcd.details->>'price_on_request')::boolean, led.price_on_request, false),
@@ -696,6 +718,11 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		FROM public.listings l
 		LEFT JOIN public.listing_category_details lcd ON lcd.listing_id = l.id
 		LEFT JOIN public.listing_event_details led ON led.listing_id = l.id
+		LEFT JOIN LATERAL (
+			SELECT array_agg(space_type_code ORDER BY is_primary DESC, sort_order, space_type_code) AS space_type_codes
+			FROM public.listing_space_types
+			WHERE listing_id = l.id
+		) lst ON true
 		LEFT JOIN LATERAL (
 			SELECT count(*)::integer AS round_count, min(starts_on) AS starts_on, max(ends_on) AS ends_on
 			FROM public.listing_event_rounds
@@ -730,7 +757,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			var sale, rent, area, landArea, lat, lng sql.NullFloat64
 			var beds, baths sql.NullInt64
 			var published, eventStartsOn, eventEndsOn sql.NullTime
-			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.Description, &item.PropertyTypeCode, &item.ListingType, &item.ProjectName, &item.Address, &item.Province, &item.District, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, &item.PrimaryImageURL, &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.IsVerified, &item.SourceType, &total); err != nil {
+			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.Description, &item.PropertyTypeCode, &item.ListingType, &item.ProjectName, &item.Address, &item.Province, &item.District, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.IsVerified, &item.SourceType, &total); err != nil {
 				return c.Status(500).JSON(fiber.Map{"error": "cannot read properties"})
 			}
 			if sale.Valid {
