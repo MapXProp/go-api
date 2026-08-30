@@ -110,7 +110,16 @@ type listingDetailResponse struct {
 	Subdistrict           string                           `json:"subdistrict"`
 	PostalCode            string                           `json:"postal_code"`
 	Road                  string                           `json:"road"`
+	UsableAreaSqm         *float64                         `json:"usable_area_sqm,omitempty"`
 	LandAreaSqm           *float64                         `json:"land_area_sqm,omitempty"`
+	BedroomCount          *int                             `json:"bedroom_count,omitempty"`
+	BathroomCount         *int                             `json:"bathroom_count,omitempty"`
+	ParkingCount          *int                             `json:"parking_count,omitempty"`
+	FloorNo               *int                             `json:"floor_no,omitempty"`
+	TotalFloors           *int                             `json:"total_floors,omitempty"`
+	FurnishingStatus      string                           `json:"furnishing_status"`
+	PropertyCondition     string                           `json:"property_condition"`
+	OccupancyStatus       string                           `json:"occupancy_status"`
 	Latitude              *float64                         `json:"latitude,omitempty"`
 	Longitude             *float64                         `json:"longitude,omitempty"`
 	ContactName           string                           `json:"contact_name"`
@@ -146,7 +155,8 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 		defer cancel()
 
 		var item listingDetailResponse
-		var latitude, longitude, amount, landAreaSqm sql.NullFloat64
+		var latitude, longitude, amount, usableAreaSqm, landAreaSqm sql.NullFloat64
+		var bedroomCount, bathroomCount, parkingCount, floorNo, totalFloors sql.NullInt64
 		var publishedAt, expiresAt, sourcePublishedAt sql.NullTime
 		var rawCategoryDetails []byte
 		var eventName, organizerName, organizerWebsiteURL, organizerVerificationStatus, venueName, venueFloor, applicationInstructions, floorPlanURL sql.NullString
@@ -162,7 +172,10 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				trim(concat_ws(' ', l.address_line1, l.address_line2)),
 				COALESCE(l.province_name, ''), COALESCE(l.district_name, ''),
 				COALESCE(l.subdistrict_name, ''), COALESCE(l.postal_code, ''),
-				COALESCE(l.road, ''), l.land_area_sqm, l.latitude, l.longitude,
+				COALESCE(l.road, ''), l.usable_area_sqm, l.land_area_sqm,
+				l.bedroom_count, l.bathroom_count, l.parking_count, l.floor_no, l.total_floors,
+				COALESCE(l.furnishing_status, ''), COALESCE(l.property_condition, ''), COALESCE(l.occupancy_status, ''),
+				l.latitude, l.longitude,
 				COALESCE(l.contact_name, ''), COALESCE(l.contact_phone, ''), COALESCE(l.contact_phone_secondary, ''),
 				COALESCE(l.contact_email, ''), COALESCE(l.line_id, ''), COALESCE(l.instagram_handle, ''),
 				COALESCE(lo.offer_type, ''), lo.amount, COALESCE(lo.price_unit, l.price_unit, ''),
@@ -198,7 +211,10 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			&item.ListingType, &item.ListingScope, &item.SpaceTypeCode,
 			&item.ProjectName, &item.BuildingName, &item.Address,
 			&item.Province, &item.District, &item.Subdistrict, &item.PostalCode,
-			&item.Road, &landAreaSqm, &latitude, &longitude, &item.ContactName, &item.ContactPhone,
+			&item.Road, &usableAreaSqm, &landAreaSqm,
+			&bedroomCount, &bathroomCount, &parkingCount, &floorNo, &totalFloors,
+			&item.FurnishingStatus, &item.PropertyCondition, &item.OccupancyStatus,
+			&latitude, &longitude, &item.ContactName, &item.ContactPhone,
 			&item.ContactPhoneSecondary, &item.ContactEmail, &item.LineID, &item.InstagramHandle,
 			&item.OfferType, &amount, &item.PriceUnit, &item.Currency,
 			&publishedAt, &expiresAt, &item.IsVerified, &rawCategoryDetails,
@@ -221,6 +237,29 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 		}
 		if landAreaSqm.Valid {
 			item.LandAreaSqm = &landAreaSqm.Float64
+		}
+		if usableAreaSqm.Valid {
+			item.UsableAreaSqm = &usableAreaSqm.Float64
+		}
+		if bedroomCount.Valid {
+			value := int(bedroomCount.Int64)
+			item.BedroomCount = &value
+		}
+		if bathroomCount.Valid {
+			value := int(bathroomCount.Int64)
+			item.BathroomCount = &value
+		}
+		if parkingCount.Valid {
+			value := int(parkingCount.Int64)
+			item.ParkingCount = &value
+		}
+		if floorNo.Valid {
+			value := int(floorNo.Int64)
+			item.FloorNo = &value
+		}
+		if totalFloors.Valid {
+			value := int(totalFloors.Int64)
+			item.TotalFloors = &value
 		}
 		item.CategoryDetails = make(map[string]any)
 		if len(rawCategoryDetails) > 0 {

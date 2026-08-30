@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -175,7 +176,7 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 			payload := integrationListingPayload(category, imageURL, videoURL, panoramaURL)
 			listingID := createIntegrationListing(t, app, accessToken, payload)
 			assertIntegrationListingPersisted(t, db, listingID, userID, category, payload)
-			if index == 0 || category.discoveryChannel == "rooms" {
+			if category.discoveryChannel == "homes" || category.discoveryChannel == "rooms" {
 				assertIntegrationListingDetailReadable(t, app, db, listingID, userID, category)
 			}
 		})
@@ -261,7 +262,7 @@ func integrationListingPayload(
 		allowedBusinessTypes = []string{"retail", "food_service"}
 	}
 	categoryDetails := integrationCategoryDetails(category)
-	return createListingRequest{
+	payload := createListingRequest{
 		DiscoveryChannelCode:  category.discoveryChannel,
 		PropertyGroupCode:     category.propertyGroup,
 		PropertyTypeCode:      category.propertyType,
@@ -322,14 +323,102 @@ func integrationListingPayload(
 			{URL: panoramaURL, MediaType: "360"},
 		},
 	}
+	if category.discoveryChannel == "homes" {
+		switch category.propertyType {
+		case "land":
+			payload.UsableAreaSqm = ""
+			payload.BedroomCount = ""
+			payload.BathroomCount = ""
+			payload.ParkingCount = ""
+			payload.FloorNo = ""
+			payload.TotalFloors = ""
+			payload.FurnishingStatus = ""
+			payload.PropertyCondition = ""
+			payload.OccupancyStatus = ""
+			payload.Amenities = nil
+		case "condo":
+			payload.LandAreaSqm = ""
+		}
+	} else if category.discoveryChannel == "rooms" {
+		payload.LandAreaSqm = ""
+	}
+	return payload
 }
 
 func integrationCategoryDetails(category listingCategoryIntegrationCase) map[string]any {
 	details := map[string]any{
 		"integration_category":    category.propertyType,
+		"can_complete_later":      true,
+		"discovery_channel_code":  category.discoveryChannel,
 		"selected_photo_count":    "1",
 		"selected_video_count":    "1",
 		"selected_panorama_count": "1",
+	}
+	if category.discoveryChannel == "homes" {
+		details["details_status"] = "structured"
+		if category.propertyType != "land" {
+			details["available_from"] = "2026-09-15"
+			details["year_built"] = "2565"
+			details["renovated_year"] = "2568"
+			details["tenure_type"] = "freehold"
+			details["facing_direction"] = "east"
+		}
+
+		switch category.propertyType {
+		case "detached_house":
+			addIntegrationHouseDetails(details)
+			details["house_style_code"] = "pool_villa"
+		case "semi_detached_house":
+			addIntegrationHouseDetails(details)
+			details["unit_position"] = "end"
+		case "townhouse":
+			addIntegrationHouseDetails(details)
+			details["unit_position"] = "corner"
+		case "condo":
+			details["condo_unit_type"] = "duplex"
+			details["building_tower"] = "Tower A"
+			details["balcony_direction"] = "north"
+			details["view_type"] = "city"
+			details["ownership_quota"] = "thai"
+			details["common_fee_monthly"] = "3200"
+			details["sinking_fund_per_sqm"] = "500"
+			details["has_balcony"] = "yes"
+		case "shophouse":
+			addIntegrationBuildingDimensions(details)
+			details["unit_position"] = "middle"
+			details["has_mezzanine"] = "yes"
+			details["has_elevator"] = "no"
+			details["signage_space"] = "yes"
+			details["three_phase_power"] = "yes"
+		case "home_office":
+			addIntegrationBuildingDimensions(details)
+			details["unit_position"] = "standalone"
+			details["office_room_count"] = "4"
+			details["meeting_room_count"] = "2"
+			details["has_pantry"] = "yes"
+			details["has_elevator"] = "yes"
+			details["project_common_fee_monthly"] = "4500"
+		case "land":
+			details["land_area_rai"] = "1"
+			details["land_area_ngan"] = "2"
+			details["land_area_sq_wah"] = "25.5"
+			details["title_deed_type"] = "chanote"
+			details["land_shape"] = "rectangular"
+			details["land_width_m"] = "32"
+			details["land_depth_m"] = "50"
+			details["frontage_m"] = "30"
+			details["road_width_m"] = "8"
+			details["access_type"] = "public_road"
+			details["road_surface"] = "concrete"
+			details["land_fill_status"] = "filled"
+			details["electricity_available"] = "yes"
+			details["water_available"] = "yes"
+			details["drainage_available"] = "no"
+			details["zoning_color"] = "yellow_y4"
+			details["current_land_use"] = "vacant_land"
+			details["existing_structures"] = "small storage shed"
+		}
+		return details
 	}
 	if category.discoveryChannel != "rooms" {
 		return details
@@ -369,6 +458,26 @@ func integrationCategoryDetails(category listingCategoryIntegrationCase) map[str
 		details["juristic_rules"] = "Register every resident"
 	}
 	return details
+}
+
+func addIntegrationHouseDetails(details map[string]any) {
+	details["land_width_m"] = "16.5"
+	details["land_depth_m"] = "28"
+	details["frontage_m"] = "16"
+	details["road_width_m"] = "10"
+	details["gated_community"] = "yes"
+	details["project_common_fee_monthly"] = "2200"
+	details["kitchen_type"] = "thai_kitchen"
+	details["maid_room_count"] = "1"
+	details["private_garden"] = "yes"
+	details["private_pool"] = "no"
+}
+
+func addIntegrationBuildingDimensions(details map[string]any) {
+	details["building_width_m"] = "5.5"
+	details["building_depth_m"] = "18"
+	details["frontage_m"] = "5.5"
+	details["road_width_m"] = "12"
 }
 
 func createIntegrationListing(t *testing.T, app *fiber.App, accessToken string, payload createListingRequest) int64 {
@@ -420,6 +529,7 @@ func assertIntegrationListingPersisted(
 		categoryCode, categoryMarker, submissionMode       string
 		accommodationModel, categoryAccommodationModel     string
 		latitude, longitude                                float64
+		usableArea, landArea                               float64
 		images, videos, panoramas, primaryImages           int
 		videoRoles, panoramaRoles, spaceTypes, amenities   int
 		useCases, offers, currencyOffers                   int
@@ -427,7 +537,10 @@ func assertIntegrationListingPersisted(
 		priceOnRequest                                     bool
 		rawCategoryDetails                                 []byte
 		maxOccupants, minimumLeaseMonths                   int
-		furnishingStatus, petPolicyCode                    string
+		bedroomCount, bathroomCount, parkingCount          int
+		floorNo, totalFloors                               int
+		furnishingStatus, propertyCondition                string
+		occupancyStatus, petPolicyCode                     string
 		utilitiesIncluded                                  bool
 	)
 	err := db.QueryRow(`
@@ -446,6 +559,15 @@ func assertIntegrationListingPersisted(
 			COALESCE(l.subdistrict_name, ''),
 			COALESCE(l.road, ''),
 			COALESCE(l.postal_code, ''),
+			COALESCE(l.usable_area_sqm, 0),
+			COALESCE(l.land_area_sqm, 0),
+			COALESCE(l.bedroom_count, 0),
+			COALESCE(l.bathroom_count, 0),
+			COALESCE(l.parking_count, 0),
+			COALESCE(l.floor_no, 0),
+			COALESCE(l.total_floors, 0),
+			COALESCE(l.property_condition, ''),
+			COALESCE(l.occupancy_status, ''),
 			COALESCE(l.max_occupants, 0),
 			COALESCE(l.minimum_lease_months, 0),
 			COALESCE(l.furnishing_status, ''),
@@ -490,6 +612,15 @@ func assertIntegrationListingPersisted(
 		&subdistrict,
 		&road,
 		&postalCode,
+		&usableArea,
+		&landArea,
+		&bedroomCount,
+		&bathroomCount,
+		&parkingCount,
+		&floorNo,
+		&totalFloors,
+		&propertyCondition,
+		&occupancyStatus,
 		&maxOccupants,
 		&minimumLeaseMonths,
 		&furnishingStatus,
@@ -549,6 +680,28 @@ func assertIntegrationListingPersisted(
 		}
 		assertMonthlyStayDetailsPersisted(t, rawCategoryDetails, category.propertyType)
 	}
+	if category.discoveryChannel == "homes" {
+		if category.propertyType == "land" {
+			if usableArea != 0 || bedroomCount != 0 || bathroomCount != 0 || parkingCount != 0 || floorNo != 0 || totalFloors != 0 || furnishingStatus != "" || propertyCondition != "" || occupancyStatus != "" {
+				t.Fatalf("land core fields contain unrelated home data: usable=%v beds=%d baths=%d parking=%d floor=%d totalFloors=%d furnishing=%q condition=%q occupancy=%q", usableArea, bedroomCount, bathroomCount, parkingCount, floorNo, totalFloors, furnishingStatus, propertyCondition, occupancyStatus)
+			}
+			if landArea != 160 {
+				t.Fatalf("land area was not persisted: got=%v want=160", landArea)
+			}
+		} else {
+			if usableArea != 85.5 || bedroomCount != 2 || bathroomCount != 2 || parkingCount != 1 || floorNo != 5 || totalFloors != 20 || furnishingStatus != "fully_furnished" || propertyCondition != "good" || occupancyStatus != "vacant" {
+				t.Fatalf("home core fields mismatch: usable=%v beds=%d baths=%d parking=%d floor=%d totalFloors=%d furnishing=%q condition=%q occupancy=%q", usableArea, bedroomCount, bathroomCount, parkingCount, floorNo, totalFloors, furnishingStatus, propertyCondition, occupancyStatus)
+			}
+			expectedLandArea := 160.0
+			if category.propertyType == "condo" {
+				expectedLandArea = 0
+			}
+			if landArea != expectedLandArea {
+				t.Fatalf("home land area mismatch for %s: got=%v want=%v", category.propertyType, landArea, expectedLandArea)
+			}
+		}
+		assertHomesDetailsPersisted(t, rawCategoryDetails, payload.CategoryDetails, category.propertyType)
+	}
 	if images != 1 || videos != 1 || panoramas != 1 || primaryImages != 1 || videoRoles != 1 || panoramaRoles != 1 {
 		t.Fatalf("media mismatch: images=%d videos=%d panoramas=%d primary=%d videoRoles=%d panoramaRoles=%d", images, videos, panoramas, primaryImages, videoRoles, panoramaRoles)
 	}
@@ -574,6 +727,38 @@ func assertIntegrationListingPersisted(
 	}
 	for _, amenityCode := range payload.Amenities {
 		assertIntegrationRelation(t, db, `SELECT count(*) FROM public.listing_amenities WHERE listing_id = $1 AND amenity_code = $2`, listingID, amenityCode)
+	}
+}
+
+func assertHomesDetailsPersisted(t *testing.T, rawDetails []byte, submitted map[string]any, propertyType string) {
+	t.Helper()
+	var details map[string]any
+	if err := json.Unmarshal(rawDetails, &details); err != nil {
+		t.Fatal("decode homes category details:", err)
+	}
+	assertHomesDetailsMap(t, details, submitted, propertyType)
+}
+
+func assertHomesDetailsMap(t *testing.T, details map[string]any, submitted map[string]any, propertyType string) {
+	t.Helper()
+	expected := make(map[string]any, len(submitted)+2)
+	for key, value := range submitted {
+		expected[key] = value
+	}
+	expected["price_on_request"] = false
+	expected["submission_mode"] = "minimum"
+
+	if len(details) != len(expected) {
+		t.Fatalf("homes detail count mismatch for %s: got=%d want=%d details=%#v", propertyType, len(details), len(expected), details)
+	}
+	for key, want := range expected {
+		got, ok := details[key]
+		if !ok {
+			t.Fatalf("homes detail %q is missing from database for %s: %#v", key, propertyType, details)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("homes detail %q changed for %s: got=%#v want=%#v", key, propertyType, got, want)
+		}
 	}
 }
 
@@ -670,13 +855,33 @@ func assertIntegrationListingDetailReadable(
 	if detail.PropertyTypeCode != expectedPropertyType || detail.Currency != "THB" {
 		t.Fatalf("listing detail classification/currency mismatch: type=%q currency=%q", detail.PropertyTypeCode, detail.Currency)
 	}
-	if category.discoveryChannel == "rooms" {
-		if marker, ok := detail.CategoryDetails["integration_category"].(string); !ok || marker != category.propertyType {
-			t.Fatalf("listing detail category data mismatch: %#v", detail.CategoryDetails)
-		}
+	if marker, ok := detail.CategoryDetails["integration_category"].(string); !ok || marker != category.propertyType {
+		t.Fatalf("listing detail category data mismatch: %#v", detail.CategoryDetails)
 	}
-	if len(detail.Amenities) != 2 || detail.Amenities[0] != "air_conditioning" || detail.Amenities[1] != "parking" {
-		t.Fatalf("listing detail amenities mismatch: %#v", detail.Amenities)
+	if category.discoveryChannel == "homes" {
+		if category.propertyType == "land" {
+			if detail.LandAreaSqm == nil || *detail.LandAreaSqm != 160 || detail.UsableAreaSqm != nil || detail.BedroomCount != nil || detail.PropertyCondition != "" {
+				t.Fatalf("public land detail core fields mismatch: %#v", detail)
+			}
+		} else {
+			if detail.UsableAreaSqm == nil || *detail.UsableAreaSqm != 85.5 || detail.BedroomCount == nil || *detail.BedroomCount != 2 || detail.BathroomCount == nil || *detail.BathroomCount != 2 || detail.ParkingCount == nil || *detail.ParkingCount != 1 || detail.FloorNo == nil || *detail.FloorNo != 5 || detail.TotalFloors == nil || *detail.TotalFloors != 20 || detail.FurnishingStatus != "fully_furnished" || detail.PropertyCondition != "good" || detail.OccupancyStatus != "vacant" {
+				t.Fatalf("public home detail core fields mismatch for %s: %#v", category.propertyType, detail)
+			}
+			if category.propertyType == "condo" && detail.LandAreaSqm != nil {
+				t.Fatalf("public condo detail should not contain land area: %#v", detail.LandAreaSqm)
+			}
+			if category.propertyType != "condo" && (detail.LandAreaSqm == nil || *detail.LandAreaSqm != 160) {
+				t.Fatalf("public house detail land area mismatch for %s: %#v", category.propertyType, detail.LandAreaSqm)
+			}
+		}
+		assertHomesDetailsMap(t, detail.CategoryDetails, integrationCategoryDetails(category), category.propertyType)
+	}
+	expectedAmenities := []string{"air_conditioning", "parking"}
+	if category.discoveryChannel == "homes" && category.propertyType == "land" {
+		expectedAmenities = []string{}
+	}
+	if !reflect.DeepEqual(detail.Amenities, expectedAmenities) {
+		t.Fatalf("listing detail amenities mismatch: got=%#v want=%#v", detail.Amenities, expectedAmenities)
 	}
 }
 
