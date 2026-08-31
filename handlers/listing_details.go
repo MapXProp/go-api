@@ -102,6 +102,7 @@ type listingDetailResponse struct {
 	ListingScope          string                           `json:"listing_scope"`
 	SpaceTypeCode         string                           `json:"space_type_code"`
 	SpaceTypeCodes        []string                         `json:"space_type_codes"`
+	AllowedBusinessTypes  []string                         `json:"allowed_business_types"`
 	ProjectName           string                           `json:"project_name"`
 	BuildingName          string                           `json:"building_name"`
 	Address               string                           `json:"address"`
@@ -128,6 +129,10 @@ type listingDetailResponse struct {
 	ContactEmail          string                           `json:"contact_email"`
 	LineID                string                           `json:"line_id"`
 	InstagramHandle       string                           `json:"instagram_handle"`
+	ContactRoleCode       string                           `json:"contact_role_code"`
+	ContactAuthorityCode  string                           `json:"contact_authority_code"`
+	ContactOrganization   string                           `json:"contact_organization_name"`
+	ContactVerification   string                           `json:"contact_verification_status"`
 	OfferType             string                           `json:"offer_type"`
 	OfferAmount           *float64                         `json:"offer_amount,omitempty"`
 	PriceUnit             string                           `json:"price_unit"`
@@ -178,6 +183,8 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				l.latitude, l.longitude,
 				COALESCE(l.contact_name, ''), COALESCE(l.contact_phone, ''), COALESCE(l.contact_phone_secondary, ''),
 				COALESCE(l.contact_email, ''), COALESCE(l.line_id, ''), COALESCE(l.instagram_handle, ''),
+				COALESCE(lcp.role_code, ''), COALESCE(lcp.authority_source_code, ''),
+				COALESCE(lcp.organization_name, ''), COALESCE(lcp.verification_status, 'unverified'),
 				COALESCE(lo.offer_type, ''), lo.amount, COALESCE(lo.price_unit, l.price_unit, ''),
 				COALESCE(lo.currency_code, 'THB'),
 				l.published_at, l.expires_at, l.is_verified, COALESCE(lcd.details, '{}'::jsonb),
@@ -190,6 +197,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				led.booth_size_on_request, led.source_published_at
 			FROM public.listings l
 			LEFT JOIN public.listing_category_details lcd ON lcd.listing_id = l.id
+			LEFT JOIN public.listing_contact_profiles lcp ON lcp.listing_id = l.id
 			LEFT JOIN LATERAL (
 				SELECT offer_type, amount, price_unit, currency_code
 				FROM public.listing_offers
@@ -216,6 +224,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			&item.FurnishingStatus, &item.PropertyCondition, &item.OccupancyStatus,
 			&latitude, &longitude, &item.ContactName, &item.ContactPhone,
 			&item.ContactPhoneSecondary, &item.ContactEmail, &item.LineID, &item.InstagramHandle,
+			&item.ContactRoleCode, &item.ContactAuthorityCode, &item.ContactOrganization, &item.ContactVerification,
 			&item.OfferType, &amount, &item.PriceUnit, &item.Currency,
 			&publishedAt, &expiresAt, &item.IsVerified, &rawCategoryDetails,
 			&eventName, &organizerName, &organizerWebsiteURL, &organizerVerificationStatus, &venueName, &venueFloor,
@@ -330,6 +339,20 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 		}
 		if len(item.SpaceTypeCodes) == 0 && item.SpaceTypeCode != "" {
 			item.SpaceTypeCodes = append(item.SpaceTypeCodes, item.SpaceTypeCode)
+		}
+
+		item.AllowedBusinessTypes = make([]string, 0)
+		var allowedBusinessTypes pq.StringArray
+		err = db.QueryRowContext(ctx, `
+			SELECT COALESCE(allowed_business_types, '{}'::text[])
+			FROM public.listing_business_details
+			WHERE listing_id = $1
+		`, item.ID).Scan(&allowedBusinessTypes)
+		if err != nil && err != sql.ErrNoRows {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read allowed business types"})
+		}
+		if err == nil {
+			item.AllowedBusinessTypes = []string(allowedBusinessTypes)
 		}
 
 		item.Media = make([]listingMediaResponse, 0)

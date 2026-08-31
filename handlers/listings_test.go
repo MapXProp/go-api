@@ -105,6 +105,91 @@ func TestCreateListingNormalizeKeepsTypedMediaAndContactChannels(t *testing.T) {
 	}
 }
 
+func TestCreateListingNormalizeClearsStaleAmountsForPriceOnRequest(t *testing.T) {
+	req := createListingRequest{
+		SalePrice:         "9,250,000",
+		RentPriceMonthly:  "25,000",
+		RentPriceDaily:    "2,000",
+		KeyMoneyAmount:    "1,250,000",
+		EventBookingPrice: "5,000",
+		ServiceFeeMonthly: "1,500",
+		PriceNegotiable:   true,
+		PriceOnRequest:    true,
+		CategoryDetails:   map[string]any{},
+	}
+
+	req.normalize()
+
+	if req.SalePrice != "" || req.RentPriceMonthly != "" || req.RentPriceDaily != "" || req.KeyMoneyAmount != "" || req.EventBookingPrice != "" || req.ServiceFeeMonthly != "" {
+		t.Fatalf("price-on-request retained stale amounts: %#v", req)
+	}
+	if req.PriceNegotiable {
+		t.Fatal("price-on-request must disable negotiable pricing")
+	}
+}
+
+func TestCreateListingValidateAcceptsSupportedContactRoles(t *testing.T) {
+	cases := []struct {
+		role         string
+		authority    string
+		organization string
+	}{
+		{role: "owner", authority: "self"},
+		{role: "owner_representative", authority: "property_owner"},
+		{role: "independent_broker", authority: "co_broker"},
+		{role: "agency_broker", authority: "brokerage_company", organization: "MapXProp Realty"},
+		{role: "developer_investor_representative", authority: "investor_asset_holder", organization: "MapXProp Capital"},
+		{role: "property_manager", authority: "property_management_company"},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.role, func(t *testing.T) {
+			req := validContactRoleListingRequest()
+			req.ContactRoleCode = testCase.role
+			req.ContactAuthorityCode = testCase.authority
+			req.ContactOrganizationName = testCase.organization
+			if err := req.validate(); err != nil {
+				t.Fatalf("unexpected validation error: %v", err)
+			}
+		})
+	}
+}
+
+func TestCreateListingValidateRejectsUnverifiedContactClaimsWithInvalidShape(t *testing.T) {
+	req := validContactRoleListingRequest()
+	req.ContactRoleCode = "agency_broker"
+	req.ContactAuthorityCode = "brokerage_company"
+	if err := req.validate(); err == nil {
+		t.Fatal("expected agency broker without an organization to be rejected")
+	}
+
+	req.ContactRoleCode = "owner_representative"
+	req.ContactAuthorityCode = "self"
+	if err := req.validate(); err == nil {
+		t.Fatal("expected a non-owner self-authority claim to be rejected")
+	}
+
+	req.ContactRoleCode = "verified_owner"
+	req.ContactAuthorityCode = "property_owner"
+	if err := req.validate(); err == nil {
+		t.Fatal("expected a client-supplied verified role to be rejected")
+	}
+}
+
+func validContactRoleListingRequest() createListingRequest {
+	return createListingRequest{
+		PropertyGroupCode: "residential",
+		PropertyTypeCode:  "condo",
+		ListingScope:      "single_unit",
+		UsageType:         "residence",
+		ListingType:       "rent",
+		Title:             "Condo with identified contact",
+		ProvinceName:      "Bangkok",
+		Latitude:          "13.7563",
+		Longitude:         "100.5018",
+	}
+}
+
 func TestCreateListingValidateRejectsUnknownAmenityAndInvalidCurrency(t *testing.T) {
 	base := createListingRequest{
 		PropertyGroupCode: "residential",
@@ -127,6 +212,16 @@ func TestCreateListingValidateRejectsUnknownAmenityAndInvalidCurrency(t *testing
 	base.Currency = "BAHT"
 	if err := base.validate(); err == nil {
 		t.Fatal("expected invalid currency to be rejected")
+	}
+
+	base.Currency = "EUR"
+	if err := base.validate(); err == nil {
+		t.Fatal("expected unsupported currency to be rejected")
+	}
+
+	base.Currency = "USD"
+	if err := base.validate(); err != nil {
+		t.Fatalf("expected USD to be accepted: %v", err)
 	}
 }
 

@@ -53,6 +53,10 @@ type createListingRequest struct {
 	ContactEmail            string              `json:"contact_email"`
 	LineID                  string              `json:"line_id"`
 	InstagramHandle         string              `json:"instagram_handle"`
+	ContactRoleCode         string              `json:"contact_role_code"`
+	ContactAuthorityCode    string              `json:"contact_authority_code"`
+	ContactOrganizationName string              `json:"contact_organization_name"`
+	ContactOrganizationNo   string              `json:"contact_organization_registration_no"`
 	AddressLine1            string              `json:"address_line1"`
 	AddressLine2            string              `json:"address_line2"`
 	Road                    string              `json:"road"`
@@ -253,6 +257,35 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			return c.Status(500).JSON(fiber.Map{"error": "cannot create category details"})
 		}
 
+		if req.ContactRoleCode != "" {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO public.listing_contact_profiles (
+					listing_id, role_code, authority_source_code,
+					organization_name, organization_registration_no,
+					verification_status
+				) VALUES ($1, $2, $3, $4, $5, 'unverified')
+				ON CONFLICT (listing_id) DO UPDATE SET
+					role_code = EXCLUDED.role_code,
+					authority_source_code = EXCLUDED.authority_source_code,
+					organization_name = EXCLUDED.organization_name,
+					organization_registration_no = EXCLUDED.organization_registration_no,
+					verification_status = 'unverified',
+					verification_note = NULL,
+					verified_at = NULL,
+					verified_by_user_id = NULL,
+					updated_at = now()
+			`,
+				listingID,
+				req.ContactRoleCode,
+				req.ContactAuthorityCode,
+				listingNullString(req.ContactOrganizationName),
+				listingNullString(req.ContactOrganizationNo),
+			); err != nil {
+				fmt.Println("Create Listing Contact Profile Error:", err)
+				return c.Status(500).JSON(fiber.Map{"error": "cannot create listing contact profile"})
+			}
+		}
+
 		for index, spaceTypeCode := range req.SpaceTypeCodes {
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO public.listing_space_types (
@@ -319,6 +352,12 @@ func CreateListing(db *sql.DB) fiber.Handler {
 
 		for _, offerType := range req.OfferTypes {
 			amount, priceUnit := req.offerAmount(offerType)
+			var minimumContractMonths any
+			var serviceFeeMonthly any
+			if inSet(offerType, "rent", "sublease") {
+				minimumContractMonths = listingNullInt(req.MinimumLeaseMonths)
+				serviceFeeMonthly = listingNullFloat(req.ServiceFeeMonthly)
+			}
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO public.listing_offers (
 					listing_id, offer_type, amount, price_unit, currency_code,
@@ -338,8 +377,8 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				amount,
 				priceUnit,
 				req.Currency,
-				listingNullInt(req.MinimumLeaseMonths),
-				listingNullFloat(req.ServiceFeeMonthly),
+				minimumContractMonths,
+				serviceFeeMonthly,
 				req.PriceNegotiable,
 			); err != nil {
 				fmt.Println("Create Listing Offer Error:", err)
@@ -551,6 +590,13 @@ func (req *createListingRequest) normalize() {
 	req.ContactEmail = strings.TrimSpace(req.ContactEmail)
 	req.LineID = strings.TrimSpace(req.LineID)
 	req.InstagramHandle = normalizeInstagramHandle(req.InstagramHandle)
+	req.ContactRoleCode = cleanCode(req.ContactRoleCode, "")
+	req.ContactAuthorityCode = cleanCode(req.ContactAuthorityCode, "")
+	req.ContactOrganizationName = strings.TrimSpace(req.ContactOrganizationName)
+	req.ContactOrganizationNo = strings.TrimSpace(req.ContactOrganizationNo)
+	if req.ContactRoleCode == "owner" {
+		req.ContactAuthorityCode = "self"
+	}
 	req.FurnishingStatus = cleanCode(req.FurnishingStatus, "")
 	req.PropertyCondition = cleanCode(req.PropertyCondition, "")
 	req.OccupancyStatus = cleanCode(req.OccupancyStatus, "")
@@ -559,6 +605,15 @@ func (req *createListingRequest) normalize() {
 	req.AllowedBusinessTypes = cleanStringSlice(req.AllowedBusinessTypes)
 	req.Amenities = cleanStringSlice(req.Amenities)
 	req.Currency = normalizeListingCurrency(req.Currency)
+	if req.PriceOnRequest {
+		req.SalePrice = ""
+		req.RentPriceMonthly = ""
+		req.RentPriceDaily = ""
+		req.KeyMoneyAmount = ""
+		req.EventBookingPrice = ""
+		req.ServiceFeeMonthly = ""
+		req.PriceNegotiable = false
+	}
 	req.MediaURLs = cleanListingMediaURLs(req.MediaURLs)
 	req.MediaItems = cleanListingMediaItems(req.MediaItems)
 	if len(req.MediaItems) == 0 {
@@ -606,7 +661,7 @@ func (req createListingRequest) validate() error {
 	if req.DiscoveryChannelCode != "" && !inSet(req.DiscoveryChannelCode, "homes", "rooms", "business") {
 		return fmt.Errorf("invalid discovery channel")
 	}
-	if !inSet(req.PropertyTypeCode, "condo", "house", "detached_house", "semi_detached_house", "townhouse", "shophouse", "home_office", "apartment", "dormitory", "rental_room", "flat", "monthly_hotel", "office", "retail_space", "warehouse", "factory", "land") {
+	if !inSet(req.PropertyTypeCode, "condo", "house", "detached_house", "semi_detached_house", "townhouse", "shophouse", "home_office", "apartment", "dormitory", "rental_room", "flat", "monthly_hotel", "office", "retail_space", "warehouse", "factory", "hotel_resort", "land") {
 		return fmt.Errorf("invalid property type")
 	}
 	if req.PropertyTypeCode == "apartment" && req.AccommodationModel != "" && !inSet(req.AccommodationModel, "standard", "serviced") {
@@ -684,6 +739,46 @@ func (req createListingRequest) validate() error {
 	}
 	if req.InstagramHandle != "" && !isValidInstagramHandle(req.InstagramHandle) {
 		return fmt.Errorf("invalid Instagram username")
+	}
+	if req.ContactRoleCode != "" {
+		if !inSet(
+			req.ContactRoleCode,
+			"owner",
+			"owner_representative",
+			"independent_broker",
+			"agency_broker",
+			"developer_investor_representative",
+			"property_manager",
+		) {
+			return fmt.Errorf("invalid contact role")
+		}
+		if !inSet(
+			req.ContactAuthorityCode,
+			"self",
+			"property_owner",
+			"brokerage_company",
+			"developer_project",
+			"investor_asset_holder",
+			"co_broker",
+			"property_management_company",
+		) {
+			return fmt.Errorf("invalid contact authority source")
+		}
+		if req.ContactRoleCode != "owner" && req.ContactAuthorityCode == "self" {
+			return fmt.Errorf("invalid self-authority for contact role")
+		}
+		if inSet(req.ContactRoleCode, "agency_broker", "developer_investor_representative") && req.ContactOrganizationName == "" {
+			return fmt.Errorf("contact organization is required for this role")
+		}
+		if len([]rune(req.ContactOrganizationName)) > 160 {
+			return fmt.Errorf("contact organization name is too long")
+		}
+		if len(req.ContactOrganizationNo) > 64 {
+			return fmt.Errorf("contact organization registration number is too long")
+		}
+		if req.ContactOrganizationNo != "" && req.ContactOrganizationName == "" {
+			return fmt.Errorf("contact organization is required with a registration number")
+		}
 	}
 	mediaCounts := map[string]int{}
 	for _, media := range req.MediaItems {
@@ -841,15 +936,7 @@ func normalizeListingCurrency(value string) string {
 }
 
 func validListingCurrency(value string) bool {
-	if len(value) != 3 {
-		return false
-	}
-	for _, character := range value {
-		if character < 'A' || character > 'Z' {
-			return false
-		}
-	}
-	return true
+	return inSet(value, "THB", "USD")
 }
 
 func validListingCoordinates(latitudeValue string, longitudeValue string) bool {
