@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"mime/multipart"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -148,6 +149,8 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 	app.Post("/listings", CreateListing(db))
 	app.Get("/listings/:slug", GetListingBySlug(db))
 	app.Get("/me/listings", GetMyListings(db))
+	app.Get("/search/suggestions", PropertySearchSuggestions(db))
+	assertIntegrationCondoSuggestion(t, app)
 
 	for index, category := range selectableListingCategoryCases {
 		category := category
@@ -197,6 +200,21 @@ func assertRoomTaxonomySearch(t *testing.T, db *sql.DB) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	var condoNameTH string
+	if err := db.QueryRowContext(ctx, `SELECT name_th FROM public.property_types WHERE code = 'condo'`).Scan(&condoNameTH); err != nil {
+		t.Fatal("load concise condo label:", err)
+	}
+	if condoNameTH != "คอนโด" {
+		t.Fatalf("condo Thai label mismatch: got=%q want=%q", condoNameTH, "คอนโด")
+	}
+	condominiumIntent, err := parseIntentFromDB(ctx, db, "คอนโดมิเนียม")
+	if err != nil {
+		t.Fatal("parse legacy condominium search alias:", err)
+	}
+	if !inSet("condo", condominiumIntent.PropertyTypes...) {
+		t.Fatalf("legacy condominium alias no longer finds condo: types=%v", condominiumIntent.PropertyTypes)
+	}
+
 	servicedIntent, err := parseIntentFromDB(ctx, db, "เซอร์วิสอพาร์ตเมนต์")
 	if err != nil {
 		t.Fatal("parse serviced apartment search:", err)
@@ -220,6 +238,34 @@ func assertRoomTaxonomySearch(t *testing.T, db *sql.DB) {
 	if !inSet("apartment", courtIntent.PropertyTypes...) {
 		t.Fatalf("Court apartment search mismatch: types=%v", courtIntent.PropertyTypes)
 	}
+}
+
+func assertIntegrationCondoSuggestion(t *testing.T, app *fiber.App) {
+	t.Helper()
+	request := httptest.NewRequest("GET", "/search/suggestions?q="+url.QueryEscape("คอนโดมิเนียม"), nil)
+	response, err := app.Test(request, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 200 {
+		t.Fatalf("condo suggestion status=%d", response.StatusCode)
+	}
+	var body struct {
+		Suggestions []struct {
+			Type  string `json:"type"`
+			Label string `json:"label"`
+		} `json:"suggestions"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	for _, suggestion := range body.Suggestions {
+		if suggestion.Type == "property_type" && suggestion.Label == "คอนโด" {
+			return
+		}
+	}
+	t.Fatalf("concise condo suggestion was not returned: %#v", body.Suggestions)
 }
 
 func cleanupStaleListingMatrixRows(db *sql.DB) error {

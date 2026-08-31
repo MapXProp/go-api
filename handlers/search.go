@@ -537,10 +537,18 @@ func PropertySearchSuggestions(db *sql.DB) fiber.Handler {
 				SELECT 1 FROM unnest(aliases) alias WHERE lower(alias) ILIKE '%' || $1 || '%'
 			))
 				UNION ALL
-				SELECT intent_type, phrase, intent_value, phrase, priority,
-					similarity(normalized_phrase, $1)
-				FROM public.search_aliases
-				WHERE is_active AND normalized_phrase ILIKE '%' || $1 || '%'
+				SELECT sa.intent_type,
+					CASE
+						WHEN sa.intent_type = 'property_type' AND sa.locale = 'th' THEN COALESCE(pt.name_th, sa.phrase)
+						WHEN sa.intent_type = 'property_type' THEN COALESCE(pt.name_en, sa.phrase)
+						ELSE sa.phrase
+					END,
+					sa.intent_value, sa.phrase, sa.priority,
+					similarity(sa.normalized_phrase, $1)
+				FROM public.search_aliases sa
+				LEFT JOIN public.property_types pt
+					ON sa.intent_type = 'property_type' AND pt.code = sa.intent_value
+				WHERE sa.is_active AND sa.normalized_phrase ILIKE '%' || $1 || '%'
 			) s ORDER BY score DESC, priority DESC LIMIT $2`, query, limit)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": "cannot load suggestions"})
