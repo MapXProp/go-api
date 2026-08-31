@@ -15,6 +15,12 @@ import (
 	"github.com/lib/pq"
 )
 
+const (
+	maxListingImages    = 10
+	maxListingVideos    = 4
+	maxListingPanoramas = 4
+)
+
 type createListingRequest struct {
 	DiscoveryChannelCode    string              `json:"discovery_channel_code"`
 	PropertyGroupCode       string              `json:"property_group_code"`
@@ -784,7 +790,7 @@ func (req createListingRequest) validate() error {
 	for _, media := range req.MediaItems {
 		mediaCounts[media.MediaType]++
 	}
-	if mediaCounts["image"] > 12 || mediaCounts["video"] > 4 || mediaCounts["360"] > 4 {
+	if mediaCounts["image"] > maxListingImages || mediaCounts["video"] > maxListingVideos || mediaCounts["360"] > maxListingPanoramas {
 		return fmt.Errorf("listing media limit exceeded")
 	}
 	return nil
@@ -880,7 +886,7 @@ func cleanListingMediaURLs(values []string) []string {
 		}
 		seen[value] = true
 		cleaned = append(cleaned, value)
-		if len(cleaned) == 12 {
+		if len(cleaned) == maxListingImages {
 			break
 		}
 	}

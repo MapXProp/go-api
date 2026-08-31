@@ -248,3 +248,35 @@ func TestCreateListingValidateRejectsMoreThanFourVideos(t *testing.T) {
 		t.Fatal("expected more than four videos to be rejected")
 	}
 }
+
+func TestCreateListingValidateAllowsTenImagesAndRejectsEleven(t *testing.T) {
+	req := createListingRequest{
+		PropertyGroupCode: "residential",
+		PropertyTypeCode:  "condo",
+		ListingScope:      "single_unit",
+		UsageType:         "residence",
+		ListingType:       "rent",
+		Title:             "Condo",
+		ProvinceName:      "Bangkok",
+		Latitude:          "13.7563",
+		Longitude:         "100.5018",
+	}
+	for index := 0; index < maxListingImages; index++ {
+		req.MediaItems = append(req.MediaItems, listingMediaInput{
+			URL:       "/apix/listing-media/files/12/image-" + string(rune('a'+index)) + ".jpg",
+			MediaType: "image",
+		})
+	}
+
+	if err := req.validate(); err != nil {
+		t.Fatalf("expected ten images to be accepted: %v", err)
+	}
+
+	req.MediaItems = append(req.MediaItems, listingMediaInput{
+		URL:       "/apix/listing-media/files/12/image-k.jpg",
+		MediaType: "image",
+	})
+	if err := req.validate(); err == nil {
+		t.Fatal("expected more than ten images to be rejected")
+	}
+}
