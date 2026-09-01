@@ -26,12 +26,30 @@ func GetListingDraft(db *sql.DB) fiber.Handler {
 
 		var data []byte
 		var currentStep int
-		var updatedAt time.Time
+		var updatedAt, expiresAt time.Time
+		now := time.Now().UTC()
+		var expired bool
 		err = db.QueryRowContext(ctx, `
-			SELECT data, current_step, updated_at
+			SELECT EXISTS (
+				SELECT 1 FROM public.listing_drafts
+				WHERE user_id = $1 AND expires_at <= $2
+			)
+		`, claims.UID, now).Scan(&expired)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": "cannot check listing draft"})
+		}
+		if expired {
+			if _, err := deleteListingDraftForUser(ctx, db, claims.UID); err != nil {
+				return c.Status(500).JSON(fiber.Map{"error": "cannot expire listing draft"})
+			}
+			return c.JSON(fiber.Map{"draft": nil, "expired": true})
+		}
+
+		err = db.QueryRowContext(ctx, `
+			SELECT data, current_step, updated_at, expires_at
 			FROM public.listing_drafts
-			WHERE user_id = $1
-		`, claims.UID).Scan(&data, &currentStep, &updatedAt)
+			WHERE user_id = $1 AND expires_at > $2
+		`, claims.UID, now).Scan(&data, &currentStep, &updatedAt, &expiresAt)
 		if err == sql.ErrNoRows {
 			return c.JSON(fiber.Map{"draft": nil})
 		}
@@ -48,6 +66,7 @@ func GetListingDraft(db *sql.DB) fiber.Handler {
 			"data":         draftData,
 			"current_step": currentStep,
 			"updated_at":   updatedAt,
+			"expires_at":   expiresAt,
 		}})
 	}
 }
@@ -75,21 +94,22 @@ func UpsertListingDraft(db *sql.DB) fiber.Handler {
 			return c.Status(400).JSON(fiber.Map{"error": "listing draft is too large"})
 		}
 
-		var updatedAt time.Time
+		var updatedAt, expiresAt time.Time
 		err = db.QueryRowContext(ctx, `
-			INSERT INTO public.listing_drafts (user_id, data, current_step)
-			VALUES ($1, $2::jsonb, $3)
+			INSERT INTO public.listing_drafts (user_id, data, current_step, expires_at)
+			VALUES ($1, $2::jsonb, $3, now() + interval '48 hours')
 			ON CONFLICT (user_id) DO UPDATE SET
 				data = EXCLUDED.data,
 				current_step = EXCLUDED.current_step,
-				updated_at = now()
-			RETURNING updated_at
-		`, claims.UID, encoded, req.CurrentStep).Scan(&updatedAt)
+				updated_at = now(),
+				expires_at = now() + interval '48 hours'
+			RETURNING updated_at, expires_at
+		`, claims.UID, encoded, req.CurrentStep).Scan(&updatedAt, &expiresAt)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": "cannot save listing draft"})
 		}
 
-		return c.JSON(fiber.Map{"success": true, "updated_at": updatedAt})
+		return c.JSON(fiber.Map{"success": true, "updated_at": updatedAt, "expires_at": expiresAt})
 	}
 }
 
@@ -103,7 +123,7 @@ func DeleteListingDraft(db *sql.DB) fiber.Handler {
 			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
 		}
 
-		if _, err := db.ExecContext(ctx, `DELETE FROM public.listing_drafts WHERE user_id = $1`, claims.UID); err != nil {
+		if _, err := deleteListingDraftForUser(ctx, db, claims.UID); err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": "cannot clear listing draft"})
 		}
 		return c.SendStatus(fiber.StatusNoContent)

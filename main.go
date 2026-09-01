@@ -2,7 +2,8 @@ package main
 
 import (
 	"estate-map-api/database" // ดึงการเชื่อมต่อ DB
-	"estate-map-api/routes"   // ดึงการจัดการเส้นทาง URL
+	"estate-map-api/handlers"
+	"estate-map-api/routes" // ดึงการจัดการเส้นทาง URL
 	"fmt"
 	"log"
 	"os"
@@ -35,6 +36,8 @@ func main() {
 	if err := database.RunMigrations(db); err != nil {
 		log.Fatal("Error: cannot run database migrations:", err)
 	}
+	stopDraftCleanup := handlers.StartListingDraftCleanup(db)
+	defer stopDraftCleanup()
 
 	// 3. ตั้งค่า Routes ทั้งหมด (รวมสารบัญ API ไว้ที่นี่)
 	// ตรงนี้จะไปเรียกใช้ทั้ง handlers และดึงข้อมูลจาก models ให้อัตโนมัติ
