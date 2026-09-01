@@ -4,5 +4,7 @@
 *.exe
 *.log
 /api-main
+/api-main.previous
 /mapx-go-api
 /output.log
+/uploads/
