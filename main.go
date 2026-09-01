@@ -36,6 +36,9 @@ func main() {
 	if err := database.RunMigrations(db); err != nil {
 		log.Fatal("Error: cannot run database migrations:", err)
 	}
+	if err := handlers.EnsureListingMediaStorage(); err != nil {
+		log.Fatal("Error: listing media storage is not writable:", err)
+	}
 	stopDraftCleanup := handlers.StartListingDraftCleanup(db)
 	defer stopDraftCleanup()
 

@@ -149,6 +149,7 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 	app.Post("/listings", CreateListing(db))
 	app.Get("/listings/:slug", GetListingBySlug(db))
 	app.Get("/me/listings", GetMyListings(db))
+	app.Get("/me/listings/:publicListingID/edit", GetMyListingEditDraft(db))
 	app.Get("/search/suggestions", PropertySearchSuggestions(db))
 	assertIntegrationCondoSuggestion(t, app)
 
@@ -182,8 +183,33 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 
 			payload := integrationListingPayload(category, imageURL, videoURL, panoramaURL)
 			listingID := createIntegrationListing(t, app, accessToken, payload)
+			if index == 0 {
+				payload.Title += " (updated safely)"
+				retriedListingID := createIntegrationListing(t, app, accessToken, payload)
+				if retriedListingID != listingID {
+					t.Fatalf("idempotent submission created duplicate listings: first=%d retry=%d", listingID, retriedListingID)
+				}
+
+				var publicListingID string
+				if err := db.QueryRow(`
+					SELECT public_listing_id::text
+					FROM public.listings
+					WHERE id = $1
+				`, listingID).Scan(&publicListingID); err != nil {
+					t.Fatal(err)
+				}
+				payload.EditingPublicListingID = publicListingID
+				payload.SubmissionKey = uuid.NewString()
+				payload.Title += " (edited by listing ID)"
+				editedListingID := createIntegrationListing(t, app, accessToken, payload)
+				if editedListingID != listingID {
+					t.Fatalf("explicit edit created duplicate listings: first=%d edit=%d", listingID, editedListingID)
+				}
+			}
 			assertIntegrationListingPersisted(t, db, listingID, userID, category, payload)
+			assertIntegrationListingImmediatelyPublished(t, db, listingID)
 			assertIntegrationListingDetailReadable(t, app, db, listingID, userID, category, payload)
+			assertIntegrationListingEditDraftReadable(t, app, db, accessToken, listingID, payload)
 		})
 	}
 	assertIntegrationContactRoleCoverage(t, db, userID)
@@ -193,6 +219,80 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 		t.Fatal(err)
 	}
 	cleanupComplete = true
+}
+
+func assertIntegrationListingEditDraftReadable(
+	t *testing.T,
+	app *fiber.App,
+	db *sql.DB,
+	accessToken string,
+	listingID int64,
+	payload createListingRequest,
+) {
+	t.Helper()
+
+	var publicListingID string
+	if err := db.QueryRow(`
+		SELECT public_listing_id::text
+		FROM public.listings
+		WHERE id = $1
+	`, listingID).Scan(&publicListingID); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest("GET", "/me/listings/"+url.PathEscape(publicListingID)+"/edit", nil)
+	request.Header.Set("Authorization", "Bearer "+accessToken)
+	response, err := app.Test(request, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 200 {
+		var errorBody map[string]any
+		_ = json.NewDecoder(response.Body).Decode(&errorBody)
+		t.Fatalf("load listing edit draft status=%d body=%v", response.StatusCode, errorBody)
+	}
+
+	var result struct {
+		Draft map[string]any `json:"draft"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	assertDraftText := func(key, expected string) {
+		t.Helper()
+		if expected == "" {
+			return
+		}
+		actual, _ := result.Draft[key].(string)
+		if actual != expected {
+			t.Fatalf("edit draft %s mismatch: got=%q want=%q", key, actual, expected)
+		}
+	}
+	assertDraftCount := func(key string, expected int) {
+		t.Helper()
+		values, _ := result.Draft[key].([]any)
+		if len(values) != expected {
+			t.Fatalf("edit draft %s count mismatch: got=%d want=%d value=%#v", key, len(values), expected, result.Draft[key])
+		}
+	}
+
+	assertDraftText("editingPublicListingId", publicListingID)
+	expectedPropertyType := payload.PropertyTypeCode
+	if payload.PropertyTypeCode == "serviced_apartment" {
+		expectedPropertyType = "apartment"
+	}
+	assertDraftText("property_type_code", expectedPropertyType)
+	assertDraftText("listingTitle", payload.Title)
+	assertDraftText("listingDescription", payload.Description)
+	assertDraftText("contactName", payload.ContactName)
+	assertDraftText("contactPhone", payload.ContactPhone)
+	assertDraftText("contactRoleCode", payload.ContactRoleCode)
+	assertDraftText("contactAuthorityCode", payload.ContactAuthorityCode)
+	assertDraftText("integrationCategory", payload.PropertyTypeCode)
+	assertDraftCount("listingPhotoUrls[]", 1)
+	assertDraftCount("listingVideoUrls[]", 1)
+	assertDraftCount("listingPanoramaUrls[]", 1)
 }
 
 func assertRoomTaxonomySearch(t *testing.T, db *sql.DB) {
@@ -320,6 +420,7 @@ func integrationListingPayload(
 	}
 	contactRole, contactAuthority, contactOrganization, contactOrganizationNo := integrationContactProfile(category)
 	payload := createListingRequest{
+		SubmissionKey:           uuid.NewString(),
 		DiscoveryChannelCode:    category.discoveryChannel,
 		PropertyGroupCode:       category.propertyGroup,
 		PropertyTypeCode:        category.propertyType,
@@ -769,6 +870,27 @@ func createIntegrationListing(t *testing.T, app *fiber.App, accessToken string, 
 		t.Fatal("create listing returned no database ID")
 	}
 	return result.ID
+}
+
+func assertIntegrationListingImmediatelyPublished(t *testing.T, db *sql.DB, listingID int64) {
+	t.Helper()
+	var listingStatus, moderationStatus string
+	var publishedAt sql.NullTime
+	if err := db.QueryRow(`
+		SELECT listing_status, moderation_status, published_at
+		FROM public.listings
+		WHERE id = $1
+	`, listingID).Scan(&listingStatus, &moderationStatus, &publishedAt); err != nil {
+		t.Fatal(err)
+	}
+	if listingStatus != "active" || moderationStatus != "approved" || !publishedAt.Valid {
+		t.Fatalf(
+			"listing was not published immediately: listing_status=%q moderation_status=%q published_at=%v",
+			listingStatus,
+			moderationStatus,
+			publishedAt,
+		)
+	}
 }
 
 func assertIntegrationListingPersisted(

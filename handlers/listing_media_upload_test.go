@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
@@ -17,5 +18,14 @@ func TestUploadListingMediaRequiresAuthentication(t *testing.T) {
 	}
 	if response.StatusCode != fiber.StatusUnauthorized {
 		t.Fatalf("expected status %d, got %d", fiber.StatusUnauthorized, response.StatusCode)
+	}
+}
+
+func TestEnsureListingMediaStorageCreatesWritableDirectory(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "nested", "listing-media")
+	t.Setenv("LISTING_MEDIA_DIR", root)
+
+	if err := EnsureListingMediaStorage(); err != nil {
+		t.Fatalf("expected writable listing media storage: %v", err)
 	}
 }

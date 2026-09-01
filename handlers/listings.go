@@ -22,6 +22,8 @@ const (
 )
 
 type createListingRequest struct {
+	SubmissionKey           string              `json:"submission_key"`
+	EditingPublicListingID  string              `json:"editing_public_listing_id"`
 	DiscoveryChannelCode    string              `json:"discovery_channel_code"`
 	PropertyGroupCode       string              `json:"property_group_code"`
 	PropertyTypeCode        string              `json:"property_type_code"`
@@ -135,6 +137,38 @@ func CreateListing(db *sql.DB) fiber.Handler {
 		}
 		defer tx.Rollback()
 
+		if req.EditingPublicListingID != "" {
+			var existingSubmissionKey string
+			err := tx.QueryRowContext(ctx, `
+				SELECT COALESCE(submission_key, '')
+				FROM public.listings
+				WHERE public_listing_id::text = $1
+					AND user_id = $2
+				FOR UPDATE
+			`, req.EditingPublicListingID, claims.UID).Scan(&existingSubmissionKey)
+			if err == sql.ErrNoRows {
+				return c.Status(404).JSON(fiber.Map{"error": "listing to edit was not found"})
+			}
+			if err != nil {
+				fmt.Println("Resolve Listing Edit Error:", err)
+				return c.Status(500).JSON(fiber.Map{"error": "cannot prepare listing update"})
+			}
+
+			if existingSubmissionKey == "" {
+				existingSubmissionKey = "edit:" + req.EditingPublicListingID
+				if _, err := tx.ExecContext(ctx, `
+					UPDATE public.listings
+					SET submission_key = $1
+					WHERE public_listing_id::text = $2
+						AND user_id = $3
+				`, existingSubmissionKey, req.EditingPublicListingID, claims.UID); err != nil {
+					fmt.Println("Prepare Listing Edit Key Error:", err)
+					return c.Status(500).JSON(fiber.Map{"error": "cannot prepare listing update"})
+				}
+			}
+			req.SubmissionKey = existingSubmissionKey
+		}
+
 		var (
 			listingID       int64
 			publicListingID string
@@ -156,7 +190,8 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				key_money_amount, service_fee_monthly, utilities_included,
 				is_sublease, owner_permission_required, source_channel, listing_scope, accommodation_model,
 				contact_phone_secondary, instagram_handle,
-				road, province_name, district_name, subdistrict_name
+				road, province_name, district_name, subdistrict_name,
+				submission_key
 			) VALUES (
 				$1, $2, $3, $4,
 				$5, $6, $7, $8,
@@ -167,13 +202,71 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				$24, $25, $26,
 				$27, $28, $29, $30,
 				$31, $32, $33, $34, $35,
-				'pending', 'pending', NULL,
+				'active', 'approved', now(),
 				$36, $37, $38, $39,
 				$40, $41, $42,
 				$43, $44, 'web', $45, $46,
 				$47, $48,
-				$49, $50, $51, $52
+				$49, $50, $51, $52,
+				$53
 			)
+			ON CONFLICT (user_id, submission_key) WHERE submission_key IS NOT NULL DO UPDATE SET
+				property_type_code = EXCLUDED.property_type_code,
+				usage_type = EXCLUDED.usage_type,
+				listing_type = EXCLUDED.listing_type,
+				custom_project_name = EXCLUDED.custom_project_name,
+				custom_unit_number = EXCLUDED.custom_unit_number,
+				title = EXCLUDED.title,
+				description = EXCLUDED.description,
+				sale_price = EXCLUDED.sale_price,
+				rent_price_monthly = EXCLUDED.rent_price_monthly,
+				rent_price_daily = EXCLUDED.rent_price_daily,
+				price_negotiable = EXCLUDED.price_negotiable,
+				usable_area_sqm = EXCLUDED.usable_area_sqm,
+				land_area_sqm = EXCLUDED.land_area_sqm,
+				bedroom_count = EXCLUDED.bedroom_count,
+				bathroom_count = EXCLUDED.bathroom_count,
+				parking_count = EXCLUDED.parking_count,
+				max_occupants = EXCLUDED.max_occupants,
+				floor_no = EXCLUDED.floor_no,
+				total_floors = EXCLUDED.total_floors,
+				furnishing_status = EXCLUDED.furnishing_status,
+				property_condition = EXCLUDED.property_condition,
+				occupancy_status = EXCLUDED.occupancy_status,
+				minimum_lease_months = EXCLUDED.minimum_lease_months,
+				pet_allowed = EXCLUDED.pet_allowed,
+				pet_policy_code = EXCLUDED.pet_policy_code,
+				contact_name = EXCLUDED.contact_name,
+				contact_phone = EXCLUDED.contact_phone,
+				contact_email = EXCLUDED.contact_email,
+				line_id = EXCLUDED.line_id,
+				address_line1 = EXCLUDED.address_line1,
+				address_line2 = EXCLUDED.address_line2,
+				postal_code = EXCLUDED.postal_code,
+				latitude = EXCLUDED.latitude,
+				longitude = EXCLUDED.longitude,
+				listing_status = 'active',
+				moderation_status = 'approved',
+				published_at = COALESCE(public.listings.published_at, now()),
+				business_type_code = EXCLUDED.business_type_code,
+				space_type_code = EXCLUDED.space_type_code,
+				target_tenant_type = EXCLUDED.target_tenant_type,
+				price_unit = EXCLUDED.price_unit,
+				key_money_amount = EXCLUDED.key_money_amount,
+				service_fee_monthly = EXCLUDED.service_fee_monthly,
+				utilities_included = EXCLUDED.utilities_included,
+				is_sublease = EXCLUDED.is_sublease,
+				owner_permission_required = EXCLUDED.owner_permission_required,
+				source_channel = EXCLUDED.source_channel,
+				listing_scope = EXCLUDED.listing_scope,
+				accommodation_model = EXCLUDED.accommodation_model,
+				contact_phone_secondary = EXCLUDED.contact_phone_secondary,
+				instagram_handle = EXCLUDED.instagram_handle,
+				road = EXCLUDED.road,
+				province_name = EXCLUDED.province_name,
+				district_name = EXCLUDED.district_name,
+				subdistrict_name = EXCLUDED.subdistrict_name,
+				updated_at = now()
 			RETURNING id, public_listing_id::text
 		`,
 			claims.UID,
@@ -228,6 +321,7 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			listingNullString(req.ProvinceName),
 			listingNullString(req.DistrictName),
 			listingNullString(req.SubdistrictName),
+			listingNullString(req.SubmissionKey),
 		).Scan(&listingID, &publicListingID)
 		if err != nil {
 			fmt.Println("Create Listing Error:", err)
@@ -242,6 +336,23 @@ func CreateListing(db *sql.DB) fiber.Handler {
 		`, slug, listingID); err != nil {
 			fmt.Println("Create Listing Slug Error:", err)
 			return c.Status(500).JSON(fiber.Map{"error": "cannot create listing slug"})
+		}
+
+		for _, cleanupQuery := range []string{
+			`DELETE FROM public.listing_category_details WHERE listing_id = $1`,
+			`DELETE FROM public.listing_contact_profiles WHERE listing_id = $1`,
+			`DELETE FROM public.listing_space_types WHERE listing_id = $1`,
+			`DELETE FROM public.listing_amenities WHERE listing_id = $1`,
+			`DELETE FROM public.listing_media WHERE listing_id = $1`,
+			`DELETE FROM public.listing_use_cases WHERE listing_id = $1`,
+			`DELETE FROM public.listing_offers WHERE listing_id = $1`,
+			`DELETE FROM public.listing_discovery_channels WHERE listing_id = $1`,
+			`DELETE FROM public.listing_business_details WHERE listing_id = $1`,
+		} {
+			if _, err := tx.ExecContext(ctx, cleanupQuery, listingID); err != nil {
+				fmt.Println("Replace Listing Detail Error:", err)
+				return c.Status(500).JSON(fiber.Map{"error": "cannot replace listing details"})
+			}
 		}
 
 		categoryDetails, err := json.Marshal(req.CategoryDetails)
@@ -462,7 +573,7 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			"id":                listingID,
 			"public_listing_id": publicListingID,
 			"slug":              slug,
-			"status":            "pending",
+			"status":            "active",
 		})
 	}
 }
@@ -543,6 +654,8 @@ func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req 
 }
 
 func (req *createListingRequest) normalize() {
+	req.SubmissionKey = strings.TrimSpace(req.SubmissionKey)
+	req.EditingPublicListingID = strings.TrimSpace(req.EditingPublicListingID)
 	req.DiscoveryChannelCode = cleanCode(req.DiscoveryChannelCode, "")
 	req.PropertyGroupCode = cleanCode(req.PropertyGroupCode, "residential")
 	req.PropertyTypeCode = cleanCode(req.PropertyTypeCode, "condo")
@@ -658,8 +771,21 @@ func (req *createListingRequest) normalize() {
 }
 
 func (req createListingRequest) validate() error {
+	if req.SubmissionKey != "" && (len(req.SubmissionKey) < 16 || len(req.SubmissionKey) > 128) {
+		return fmt.Errorf("invalid submission key")
+	}
+	if len(req.EditingPublicListingID) > 128 {
+		return fmt.Errorf("invalid listing ID to edit")
+	}
 	if req.Title == "" {
 		return fmt.Errorf("listing title is required")
+	}
+	if req.Description == "" {
+		return fmt.Errorf("listing description is required")
+	}
+	descriptionLength := len([]rune(req.Description))
+	if descriptionLength > 1000 {
+		return fmt.Errorf("listing description must not exceed 1000 characters")
 	}
 	if !inSet(req.PropertyGroupCode, "residential", "mixed_use", "commercial", "land") {
 		return fmt.Errorf("invalid property group")
@@ -678,6 +804,9 @@ func (req createListingRequest) validate() error {
 	}
 	if !inSet(req.ListingScope, "single_unit", "whole_property", "multi_unit", "land_plot", "space_slot") {
 		return fmt.Errorf("invalid listing scope")
+	}
+	if err := req.validateCoreDetails(); err != nil {
+		return err
 	}
 	if !inSet(req.UsageType, "residence", "business", "mixed") {
 		return fmt.Errorf("invalid usage type")
@@ -794,6 +923,62 @@ func (req createListingRequest) validate() error {
 		return fmt.Errorf("listing media limit exceeded")
 	}
 	return nil
+}
+
+func (req createListingRequest) validateCoreDetails() error {
+	if req.LandAreaSqm != "" && !validPositiveListingFloat(req.LandAreaSqm) {
+		return fmt.Errorf("land area must be greater than zero")
+	}
+	if req.UsableAreaSqm != "" && !validPositiveListingFloat(req.UsableAreaSqm) {
+		return fmt.Errorf("usable area must be greater than zero")
+	}
+	for _, field := range []struct {
+		label string
+		value string
+	}{
+		{label: "bedroom count", value: req.BedroomCount},
+		{label: "bathroom count", value: req.BathroomCount},
+		{label: "parking count", value: req.ParkingCount},
+		{label: "floor number", value: req.FloorNo},
+	} {
+		if field.value != "" && !validNonNegativeListingInt(field.value) {
+			return fmt.Errorf("%s must be a non-negative whole number", field.label)
+		}
+	}
+	if req.TotalFloors != "" && !validPositiveListingInt(req.TotalFloors) {
+		return fmt.Errorf("total floors must be greater than zero")
+	}
+	if req.FurnishingStatus != "" && !inSet(req.FurnishingStatus, "fully_furnished", "partly_furnished", "unfurnished") {
+		return fmt.Errorf("invalid furnishing status")
+	}
+	if req.FloorNo != "" && req.TotalFloors != "" {
+		floorNo, _ := parseListingInt(req.FloorNo)
+		totalFloors, _ := parseListingInt(req.TotalFloors)
+		if floorNo > totalFloors {
+			return fmt.Errorf("floor number must not exceed total floors")
+		}
+	}
+
+	return nil
+}
+
+func parseListingInt(value string) (int, error) {
+	return strconv.Atoi(strings.TrimSpace(strings.ReplaceAll(value, ",", "")))
+}
+
+func validNonNegativeListingInt(value string) bool {
+	parsed, err := parseListingInt(value)
+	return err == nil && parsed >= 0
+}
+
+func validPositiveListingInt(value string) bool {
+	parsed, err := parseListingInt(value)
+	return err == nil && parsed > 0
+}
+
+func validPositiveListingFloat(value string) bool {
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(strings.ReplaceAll(value, ",", "")), 64)
+	return err == nil && parsed > 0
 }
 
 func (req createListingRequest) validateMediaOwnership(userID int64) error {

@@ -100,12 +100,14 @@ func UploadListingMedia(db *sql.DB) fiber.Handler {
 
 		userDir := filepath.Join(listingMediaRoot(), strconv.FormatInt(claims.UID, 10))
 		if err := os.MkdirAll(userDir, 0o750); err != nil {
+			fmt.Printf("listing media storage mkdir failed for user %d: %v\n", claims.UID, err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot prepare media storage"})
 		}
 		filename := randomListingMediaName() + extension
 		filePath := filepath.Join(userDir, filename)
 		destination, err := os.OpenFile(filePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o640)
 		if err != nil {
+			fmt.Printf("listing media storage open failed for user %d: %v\n", claims.UID, err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot save media file"})
 		}
 		written, copyErr := io.CopyN(destination, file, rule.maxBytes+1)
@@ -172,6 +174,29 @@ func listingMediaRoot() string {
 		return value
 	}
 	return filepath.Join("uploads", "listings")
+}
+
+// EnsureListingMediaStorage fails startup/deployment early when the configured
+// upload directory cannot be created or written. A healthy HTTP process must
+// also be able to accept listing media.
+func EnsureListingMediaStorage() error {
+	root := listingMediaRoot()
+	if err := os.MkdirAll(root, 0o750); err != nil {
+		return fmt.Errorf("create listing media directory %q: %w", root, err)
+	}
+	testFile, err := os.CreateTemp(root, ".mapxprop-write-check-*")
+	if err != nil {
+		return fmt.Errorf("write listing media directory %q: %w", root, err)
+	}
+	testPath := testFile.Name()
+	if closeErr := testFile.Close(); closeErr != nil {
+		_ = os.Remove(testPath)
+		return fmt.Errorf("close listing media write check %q: %w", root, closeErr)
+	}
+	if err := os.Remove(testPath); err != nil {
+		return fmt.Errorf("clean listing media write check %q: %w", root, err)
+	}
+	return nil
 }
 
 func randomListingMediaName() string {

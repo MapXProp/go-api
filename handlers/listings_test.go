@@ -2,6 +2,8 @@ package handlers
 
 import "testing"
 
+const validListingDescription = "A complete property description with access, highlights, condition, and important terms."
+
 func TestCreateListingNormalizeKeepsPrimarySpaceTypeFirst(t *testing.T) {
 	req := createListingRequest{
 		PropertyTypeCode: "retail_space",
@@ -31,6 +33,7 @@ func TestCreateListingValidateRejectsMoreThanTwoSpaceTypes(t *testing.T) {
 		UsageType:         "business",
 		ListingType:       "rent",
 		Title:             "Retail space",
+		Description:       validListingDescription,
 		ProvinceName:      "Bangkok",
 		Latitude:          "13.7563",
 		Longitude:         "100.5018",
@@ -54,6 +57,7 @@ func TestCreateListingValidateAcceptsOverlappingRetailSpaceTypes(t *testing.T) {
 		UsageType:         "business",
 		ListingType:       "event_booking",
 		Title:             "Event booth in a mall",
+		Description:       validListingDescription,
 		UseCaseCodes:      []string{"retail"},
 		OfferTypes:        []string{"event_booking"},
 		SpaceTypeCode:     "mall_kiosk",
@@ -184,6 +188,7 @@ func validContactRoleListingRequest() createListingRequest {
 		UsageType:         "residence",
 		ListingType:       "rent",
 		Title:             "Condo with identified contact",
+		Description:       validListingDescription,
 		ProvinceName:      "Bangkok",
 		Latitude:          "13.7563",
 		Longitude:         "100.5018",
@@ -198,6 +203,7 @@ func TestCreateListingValidateRejectsUnknownAmenityAndInvalidCurrency(t *testing
 		UsageType:         "residence",
 		ListingType:       "rent",
 		Title:             "Condo",
+		Description:       validListingDescription,
 		ProvinceName:      "Bangkok",
 		Latitude:          "13.7563",
 		Longitude:         "100.5018",
@@ -233,6 +239,7 @@ func TestCreateListingValidateRejectsMoreThanFourVideos(t *testing.T) {
 		UsageType:         "residence",
 		ListingType:       "rent",
 		Title:             "Condo",
+		Description:       validListingDescription,
 		ProvinceName:      "Bangkok",
 		Latitude:          "13.7563",
 		Longitude:         "100.5018",
@@ -257,6 +264,7 @@ func TestCreateListingValidateAllowsTenImagesAndRejectsEleven(t *testing.T) {
 		UsageType:         "residence",
 		ListingType:       "rent",
 		Title:             "Condo",
+		Description:       validListingDescription,
 		ProvinceName:      "Bangkok",
 		Latitude:          "13.7563",
 		Longitude:         "100.5018",
@@ -278,5 +286,60 @@ func TestCreateListingValidateAllowsTenImagesAndRejectsEleven(t *testing.T) {
 	})
 	if err := req.validate(); err == nil {
 		t.Fatal("expected more than ten images to be rejected")
+	}
+}
+
+func TestCreateListingValidateRequiresDescriptionWithoutAMinimumLength(t *testing.T) {
+	req := validCurrentWizardListingRequest()
+	req.Description = ""
+	if err := req.validate(); err == nil {
+		t.Fatal("expected an empty listing description to be rejected")
+	}
+
+	req.Description = "สั้น"
+	if err := req.validate(); err != nil {
+		t.Fatalf("expected a short non-empty listing description to be accepted: %v", err)
+	}
+
+	req.Description = validListingDescription
+	if err := req.validate(); err != nil {
+		t.Fatalf("expected a useful listing description to be accepted: %v", err)
+	}
+}
+
+func TestCreateListingValidateAllowsEmptyCoreDetails(t *testing.T) {
+	req := validCurrentWizardListingRequest()
+	req.LandAreaSqm = ""
+	req.UsableAreaSqm = ""
+	req.BedroomCount = ""
+	req.BathroomCount = ""
+	req.ParkingCount = ""
+	req.FloorNo = ""
+	req.TotalFloors = ""
+	req.FurnishingStatus = ""
+
+	if err := req.validate(); err != nil {
+		t.Fatalf("expected all core-detail fields to be optional: %v", err)
+	}
+}
+
+func validCurrentWizardListingRequest() createListingRequest {
+	return createListingRequest{
+		DiscoveryChannelCode: "homes",
+		PropertyGroupCode:    "residential",
+		PropertyTypeCode:     "condo",
+		ListingScope:         "single_unit",
+		UsageType:            "residence",
+		ListingType:          "rent",
+		Title:                "Condo near transit",
+		Description:          validListingDescription,
+		UsableAreaSqm:        "48.5",
+		BedroomCount:         "0",
+		BathroomCount:        "1",
+		FloorNo:              "5",
+		FurnishingStatus:     "unfurnished",
+		ProvinceName:         "Bangkok",
+		Latitude:             "13.7563",
+		Longitude:            "100.5018",
 	}
 }
