@@ -20,6 +20,7 @@ func TestListingContactProfilePersistsChannelsAcrossRoleChanges(t *testing.T) {
 		t.Skip("set MAPXPROP_DB_INTEGRATION=1 to run the database integration test")
 	}
 	_ = godotenv.Load("../.env")
+	requireSafeIntegrationDatabase(t)
 
 	db := database.ConnectDB()
 	defer db.Close()

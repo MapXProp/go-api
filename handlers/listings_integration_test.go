@@ -68,6 +68,7 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 	if err := godotenv.Load("../.env"); err != nil {
 		t.Fatal("load integration database environment:", err)
 	}
+	requireSafeIntegrationDatabase(t)
 	if len(selectableListingCategoryCases) != 22 {
 		t.Fatalf("integration matrix must cover 18 property types and every selectable discovery-channel route, got %d", len(selectableListingCategoryCases))
 	}

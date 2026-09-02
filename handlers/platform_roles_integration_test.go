@@ -23,6 +23,7 @@ func TestPlatformRoleAuthorizationAndAudit(t *testing.T) {
 	if err := godotenv.Load("../.env"); err != nil {
 		t.Fatal("load integration database environment:", err)
 	}
+	requireSafeIntegrationDatabase(t)
 
 	db := database.ConnectDB()
 	defer db.Close()

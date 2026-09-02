@@ -23,6 +23,7 @@ func TestListingAutoPublishesThenSuperAdminCanUnapprove(t *testing.T) {
 	if err := godotenv.Load("../.env"); err != nil {
 		t.Fatal("load moderation integration database environment:", err)
 	}
+	requireSafeIntegrationDatabase(t)
 
 	db := database.ConnectDB()
 	defer db.Close()
@@ -65,6 +66,12 @@ func TestListingAutoPublishesThenSuperAdminCanUnapprove(t *testing.T) {
 	defer func() {
 		if _, err := db.Exec(`DELETE FROM public.auth_sessions WHERE token_id = $1`, adminTokenID); err != nil {
 			t.Errorf("delete admin moderation session: %v", err)
+		}
+		// listings.user_id is nullable and uses ON DELETE SET NULL, so deleting
+		// the synthetic owner first would leave a publicly visible orphan listing.
+		// Remove the fixture listings explicitly before removing their owner.
+		if _, err := db.Exec(`DELETE FROM public.listings WHERE user_id = $1`, ownerID); err != nil {
+			t.Errorf("delete moderation listings: %v", err)
 		}
 		if _, err := db.Exec(`DELETE FROM public.auth_users WHERE id = $1 AND email = $2`, ownerID, ownerEmail); err != nil {
 			t.Errorf("delete moderation owner: %v", err)
