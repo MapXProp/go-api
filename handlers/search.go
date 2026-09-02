@@ -86,6 +86,7 @@ type searchListing struct {
 	SpaceTypeCode      string     `json:"space_type_code"`
 	SpaceTypeCodes     []string   `json:"space_type_codes"`
 	PrimaryImageURL    string     `json:"primary_image_url"`
+	ImageURLs          []string   `json:"image_urls"`
 	EventName          string     `json:"event_name"`
 	EventFloorLabel    string     `json:"event_floor_label"`
 	EventRoundCount    int        `json:"event_round_count"`
@@ -728,6 +729,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			COALESCE(l.space_type_code,''),
 			COALESCE(lst.space_type_codes, CASE WHEN NULLIF(l.space_type_code, '') IS NULL THEN ARRAY[]::text[] ELSE ARRAY[l.space_type_code] END),
 			COALESCE(pm.media_url,''),
+			COALESCE(pm.image_urls, ARRAY[]::text[]),
 			COALESCE(led.event_name,''), COALESCE(led.venue_floor_label,''),
 			COALESCE(er.round_count,0), er.starts_on, er.ends_on,
 			COALESCE((lcd.details->>'price_on_request')::boolean, led.price_on_request, false),
@@ -747,11 +749,27 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			WHERE listing_id = l.id AND availability_status IN ('open','limited','waitlist')
 		) er ON true
 		LEFT JOIN LATERAL (
-			SELECT COALESCE(NULLIF(large_url,''), NULLIF(medium_url,''), NULLIF(file_url,''), NULLIF(original_url,''), '') AS media_url
-			FROM public.listing_media
-			WHERE listing_id = l.id AND is_active = true AND deleted_at IS NULL AND media_type = 'image'
-			ORDER BY is_primary DESC, sort_order, id
-			LIMIT 1
+			SELECT
+				COALESCE(gallery.image_urls[1], '') AS media_url,
+				COALESCE(gallery.image_urls, ARRAY[]::text[]) AS image_urls
+			FROM (
+				SELECT array_agg(media_url ORDER BY is_primary DESC, sort_order, id) AS image_urls
+				FROM (
+					SELECT
+						COALESCE(NULLIF(large_url,''), NULLIF(medium_url,''), NULLIF(file_url,''), NULLIF(original_url,''), '') AS media_url,
+						is_primary,
+						sort_order,
+						id
+					FROM public.listing_media
+					WHERE listing_id = l.id
+						AND is_active = true
+						AND deleted_at IS NULL
+						AND media_type = 'image'
+						AND COALESCE(NULLIF(large_url,''), NULLIF(medium_url,''), NULLIF(file_url,''), NULLIF(original_url,''), '') <> ''
+					ORDER BY is_primary DESC, sort_order, id
+					LIMIT 4
+				) gallery_images
+			) gallery
 		) pm ON true
 		LEFT JOIN LATERAL (
 			SELECT source_type
@@ -775,7 +793,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			var sale, rent, area, landArea, lat, lng sql.NullFloat64
 			var beds, baths sql.NullInt64
 			var published, eventStartsOn, eventEndsOn sql.NullTime
-			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.Description, &item.PropertyTypeCode, &item.AccommodationModel, &item.ListingType, &item.ProjectName, &item.Address, &item.Province, &item.District, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.IsVerified, &item.SourceType, &total); err != nil {
+			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.Description, &item.PropertyTypeCode, &item.AccommodationModel, &item.ListingType, &item.ProjectName, &item.Address, &item.Province, &item.District, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, pq.Array(&item.ImageURLs), &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.IsVerified, &item.SourceType, &total); err != nil {
 				return c.Status(500).JSON(fiber.Map{"error": "cannot read properties"})
 			}
 			if sale.Valid {
