@@ -4,6 +4,18 @@ import "testing"
 
 const validListingDescription = "A complete property description with access, highlights, condition, and important terms."
 
+func TestCreateListingRequiresIdempotencyKeyForNewListings(t *testing.T) {
+	if err := (createListingRequest{}).validateSubmissionIdentity(); err == nil {
+		t.Fatal("expected a new listing without a submission key to be rejected")
+	}
+	if err := (createListingRequest{SubmissionKey: "new-listing-request-123"}).validateSubmissionIdentity(); err != nil {
+		t.Fatalf("submission key should allow a new listing: %v", err)
+	}
+	if err := (createListingRequest{EditingPublicListingID: "existing-listing-id"}).validateSubmissionIdentity(); err != nil {
+		t.Fatalf("an explicit edit should not require a client submission key: %v", err)
+	}
+}
+
 func TestCreateListingNormalizeKeepsPrimarySpaceTypeFirst(t *testing.T) {
 	req := createListingRequest{
 		PropertyTypeCode: "retail_space",

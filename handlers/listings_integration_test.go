@@ -150,9 +150,15 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 	app.Get("/listings/:slug", GetListingBySlug(db))
 	app.Get("/me/listings", GetMyListings(db))
 	app.Get("/me/listings/:publicListingID/edit", GetMyListingEditDraft(db))
+	app.Delete("/me/listings/:publicListingID", DeleteMyListing(db))
 	app.Get("/search/suggestions", PropertySearchSuggestions(db))
+	app.Get("/properties/search", SearchProperties(db))
 	assertIntegrationCondoSuggestion(t, app)
 
+	var (
+		softDeleteListingID      int64
+		softDeleteListingPayload createListingRequest
+	)
 	for index, category := range selectableListingCategoryCases {
 		category := category
 		t.Run(fmt.Sprintf("%02d_%s", index+1, category.propertyType), func(t *testing.T) {
@@ -182,7 +188,21 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 			)
 
 			payload := integrationListingPayload(category, imageURL, videoURL, panoramaURL)
-			listingID := createIntegrationListing(t, app, accessToken, payload)
+			listingID := int64(0)
+			if index == 0 {
+				missingKeyPayload := payload
+				missingKeyPayload.SubmissionKey = ""
+				assertIntegrationListingRejected(
+					t,
+					app,
+					accessToken,
+					missingKeyPayload,
+					"submission key is required",
+				)
+				listingID = createIntegrationListingConcurrently(t, app, db, accessToken, payload, 8)
+			} else {
+				listingID = createIntegrationListing(t, app, accessToken, payload)
+			}
 			if index == 0 {
 				payload.Title += " (updated safely)"
 				retriedListingID := createIntegrationListing(t, app, accessToken, payload)
@@ -201,24 +221,462 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 				payload.EditingPublicListingID = publicListingID
 				payload.SubmissionKey = uuid.NewString()
 				payload.Title += " (edited by listing ID)"
+				replacementImageURL := uploadIntegrationMedia(
+					t,
+					app,
+					accessToken,
+					"image",
+					"replacement-cover.png",
+					[]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 1, 1, 1, 'I', 'H', 'D', 'R'},
+				)
+				replacementVideoURL := uploadIntegrationMedia(
+					t,
+					app,
+					accessToken,
+					"video",
+					"replacement-tour.mp4",
+					[]byte{0, 0, 0, 24, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm', 1, 1, 1, 1, 'i', 's', 'o', 'm', 'm', 'p', '4', '1'},
+				)
+				replacementPanoramaURL := uploadIntegrationMedia(
+					t,
+					app,
+					accessToken,
+					"360",
+					"replacement-panorama.png",
+					[]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 2, 2, 2, 2, 'I', 'H', 'D', 'R'},
+				)
+				replacementMedia := []listingMediaInput{
+					{URL: replacementImageURL, MediaType: "image"},
+					{URL: replacementVideoURL, MediaType: "video"},
+					{URL: replacementPanoramaURL, MediaType: "360"},
+				}
+				payload.ReplaceMedia = true
+				payload.MediaItems = replacementMedia
+				payload.MediaURLs = []string{replacementImageURL}
 				editedListingID := createIntegrationListing(t, app, accessToken, payload)
 				if editedListingID != listingID {
 					t.Fatalf("explicit edit created duplicate listings: first=%d edit=%d", listingID, editedListingID)
 				}
+				assertIntegrationListingMediaURLs(t, db, listingID, replacementMedia)
+
+				payload.ReplaceMedia = false
+				payload.MediaItems = nil
+				payload.MediaURLs = nil
+				payload.Title += " (media protected)"
+				protectedListingID := createIntegrationListing(t, app, accessToken, payload)
+				if protectedListingID != listingID {
+					t.Fatalf("protected edit created duplicate listings: first=%d edit=%d", listingID, protectedListingID)
+				}
+				var protectedMediaCount int
+				if err := db.QueryRow(`
+					SELECT count(*) FROM public.listing_media WHERE listing_id = $1
+				`, listingID).Scan(&protectedMediaCount); err != nil {
+					t.Fatal(err)
+				}
+				if protectedMediaCount != 3 {
+					t.Fatalf("edit without loaded media removed existing files: got=%d want=3", protectedMediaCount)
+				}
+				assertIntegrationListingMediaURLs(t, db, listingID, replacementMedia)
+
+				payload.ReplaceMedia = true
+				payload.Title += " (media cleared intentionally)"
+				clearedListingID := createIntegrationListing(t, app, accessToken, payload)
+				if clearedListingID != listingID {
+					t.Fatalf("media removal created duplicate listings: first=%d edit=%d", listingID, clearedListingID)
+				}
+				assertIntegrationListingMediaURLs(t, db, listingID, nil)
+
+				payload.Title += " (media restored)"
+				payload.MediaItems = replacementMedia
+				payload.MediaURLs = []string{replacementImageURL}
+				restoredListingID := createIntegrationListing(t, app, accessToken, payload)
+				if restoredListingID != listingID {
+					t.Fatalf("media restore created duplicate listings: first=%d edit=%d", listingID, restoredListingID)
+				}
+				assertIntegrationListingMediaURLs(t, db, listingID, replacementMedia)
+				assertIntegrationOwnerListingPrimaryImage(t, app, accessToken, publicListingID, replacementImageURL)
 			}
 			assertIntegrationListingPersisted(t, db, listingID, userID, category, payload)
 			assertIntegrationListingImmediatelyPublished(t, db, listingID)
 			assertIntegrationListingDetailReadable(t, app, db, listingID, userID, category, payload)
 			assertIntegrationListingEditDraftReadable(t, app, db, accessToken, listingID, payload)
+			if index == 0 {
+				softDeleteListingID = listingID
+				softDeleteListingPayload = payload
+			}
 		})
 	}
 	assertIntegrationContactRoleCoverage(t, db, userID)
 	assertIntegrationOwnerListingsReadable(t, app, accessToken)
+	assertIntegrationListingSoftDelete(t, app, db, accessToken, userID, softDeleteListingID, softDeleteListingPayload)
 
 	if err := cleanup(); err != nil {
 		t.Fatal(err)
 	}
 	cleanupComplete = true
+}
+
+func assertIntegrationListingSoftDelete(
+	t *testing.T,
+	app *fiber.App,
+	db *sql.DB,
+	accessToken string,
+	userID int64,
+	listingID int64,
+	payload createListingRequest,
+) {
+	t.Helper()
+	if listingID == 0 {
+		t.Fatal("soft-delete integration listing was not captured")
+	}
+
+	var publicListingID, slug, storedTitle, storedSubmissionKey, listingStatus, moderationStatus string
+	var isActive bool
+	var publishedAt sql.NullTime
+	if err := db.QueryRow(`
+		SELECT public_listing_id::text, slug, title, COALESCE(submission_key, ''),
+		       listing_status, moderation_status, is_active, published_at
+		FROM public.listings
+		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+	`, listingID, userID).Scan(
+		&publicListingID,
+		&slug,
+		&storedTitle,
+		&storedSubmissionKey,
+		&listingStatus,
+		&moderationStatus,
+		&isActive,
+		&publishedAt,
+	); err != nil {
+		t.Fatal("load listing before soft delete:", err)
+	}
+	retainedBefore := integrationListingRelationCounts(t, db, listingID)
+	assertIntegrationSearchContainsListing(t, app, publicListingID, true)
+	if _, err := db.Exec(`
+		INSERT INTO public.listing_drafts (user_id, data, current_step, expires_at)
+		VALUES ($1, jsonb_build_object('editingPublicListingId', $2::text), 3, now() + interval '48 hours')
+		ON CONFLICT (user_id) DO UPDATE SET
+			data = EXCLUDED.data,
+			current_step = EXCLUDED.current_step,
+			updated_at = now(),
+			expires_at = EXCLUDED.expires_at
+	`, userID, publicListingID); err != nil {
+		t.Fatal("create stale edit draft before soft delete:", err)
+	}
+
+	unauthorizedRequest := httptest.NewRequest("DELETE", "/me/listings/"+url.PathEscape(publicListingID), nil)
+	unauthorizedResponse, err := app.Test(unauthorizedRequest, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unauthorizedResponse.Body.Close()
+	if unauthorizedResponse.StatusCode != fiber.StatusUnauthorized {
+		t.Fatalf("unauthorized soft delete status=%d want=%d", unauthorizedResponse.StatusCode, fiber.StatusUnauthorized)
+	}
+
+	deleteResult := deleteIntegrationListing(t, app, accessToken, publicListingID)
+	if !deleteResult.Success || deleteResult.AlreadyDeleted {
+		t.Fatalf("first soft delete response mismatch: %#v", deleteResult)
+	}
+
+	var (
+		deletedAt              sql.NullTime
+		storedListingStatus    string
+		storedModerationStatus string
+		storedIsActive         bool
+		storedPublishedAt      sql.NullTime
+	)
+	if err := db.QueryRow(`
+		SELECT deleted_at, listing_status, moderation_status, is_active, published_at
+		FROM public.listings
+		WHERE id = $1 AND user_id = $2
+	`, listingID, userID).Scan(
+		&deletedAt,
+		&storedListingStatus,
+		&storedModerationStatus,
+		&storedIsActive,
+		&storedPublishedAt,
+	); err != nil {
+		t.Fatal("load listing after soft delete:", err)
+	}
+	if !deletedAt.Valid {
+		t.Fatal("soft delete did not set listings.deleted_at")
+	}
+	if storedListingStatus != listingStatus || storedModerationStatus != moderationStatus || storedIsActive != isActive || storedPublishedAt.Valid != publishedAt.Valid {
+		t.Fatalf(
+			"soft delete changed restorable listing state: status=%q/%q moderation=%q/%q active=%v/%v published=%v/%v",
+			storedListingStatus,
+			listingStatus,
+			storedModerationStatus,
+			moderationStatus,
+			storedIsActive,
+			isActive,
+			storedPublishedAt.Valid,
+			publishedAt.Valid,
+		)
+	}
+	retainedAfter := integrationListingRelationCounts(t, db, listingID)
+	if !reflect.DeepEqual(retainedAfter, retainedBefore) {
+		t.Fatalf("soft delete removed related listing data: before=%v after=%v", retainedBefore, retainedAfter)
+	}
+	var matchingDrafts int
+	if err := db.QueryRow(`
+		SELECT count(*) FROM public.listing_drafts
+		WHERE user_id = $1 AND data->>'editingPublicListingId' = $2
+	`, userID, publicListingID).Scan(&matchingDrafts); err != nil {
+		t.Fatal("count stale edit drafts after soft delete:", err)
+	}
+	if matchingDrafts != 0 {
+		t.Fatalf("soft delete left %d stale edit drafts", matchingDrafts)
+	}
+
+	assertIntegrationOwnerListingsExclude(t, app, accessToken, publicListingID, len(selectableListingCategoryCases)-1)
+	assertIntegrationSearchContainsListing(t, app, publicListingID, false)
+
+	detailRequest := httptest.NewRequest("GET", "/listings/"+url.PathEscape(slug), nil)
+	detailResponse, err := app.Test(detailRequest, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detailResponse.Body.Close()
+	if detailResponse.StatusCode != fiber.StatusNotFound {
+		t.Fatalf("soft-deleted public listing detail status=%d want=%d", detailResponse.StatusCode, fiber.StatusNotFound)
+	}
+
+	editRequest := httptest.NewRequest("GET", "/me/listings/"+url.PathEscape(publicListingID)+"/edit", nil)
+	editRequest.Header.Set("Authorization", "Bearer "+accessToken)
+	editResponse, err := app.Test(editRequest, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	editResponse.Body.Close()
+	if editResponse.StatusCode != fiber.StatusNotFound {
+		t.Fatalf("soft-deleted listing edit status=%d want=%d", editResponse.StatusCode, fiber.StatusNotFound)
+	}
+
+	payload.EditingPublicListingID = publicListingID
+	payload.SubmissionKey = uuid.NewString()
+	payload.Title = storedTitle + " (must stay deleted)"
+	payloadBody, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updateRequest := httptest.NewRequest("POST", "/listings", bytes.NewReader(payloadBody))
+	updateRequest.Header.Set("Content-Type", "application/json")
+	updateRequest.Header.Set("Authorization", "Bearer "+accessToken)
+	updateResponse, err := app.Test(updateRequest, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updateResponse.Body.Close()
+	if updateResponse.StatusCode != fiber.StatusNotFound {
+		t.Fatalf("soft-deleted listing update status=%d want=%d", updateResponse.StatusCode, fiber.StatusNotFound)
+	}
+	var titleAfterRejectedUpdate string
+	if err := db.QueryRow(`SELECT title FROM public.listings WHERE id = $1 AND deleted_at IS NOT NULL`, listingID).Scan(&titleAfterRejectedUpdate); err != nil {
+		t.Fatal("verify rejected soft-deleted listing update:", err)
+	}
+	if titleAfterRejectedUpdate != storedTitle {
+		t.Fatalf("soft-deleted listing was modified: got=%q want=%q", titleAfterRejectedUpdate, storedTitle)
+	}
+
+	delayedPayload := payload
+	delayedPayload.EditingPublicListingID = ""
+	delayedPayload.SubmissionKey = storedSubmissionKey
+	delayedPayload.Title = storedTitle + " (delayed retry must not modify)"
+	delayedBody, err := json.Marshal(delayedPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delayedRequest := httptest.NewRequest("POST", "/listings", bytes.NewReader(delayedBody))
+	delayedRequest.Header.Set("Content-Type", "application/json")
+	delayedRequest.Header.Set("Authorization", "Bearer "+accessToken)
+	delayedResponse, err := app.Test(delayedRequest, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delayedResponse.Body.Close()
+	if delayedResponse.StatusCode != fiber.StatusConflict {
+		t.Fatalf("delayed retry after soft delete status=%d want=%d", delayedResponse.StatusCode, fiber.StatusConflict)
+	}
+	if err := db.QueryRow(`SELECT title FROM public.listings WHERE id = $1 AND deleted_at IS NOT NULL`, listingID).Scan(&titleAfterRejectedUpdate); err != nil {
+		t.Fatal("verify rejected delayed retry:", err)
+	}
+	if titleAfterRejectedUpdate != storedTitle {
+		t.Fatalf("delayed retry modified soft-deleted listing: got=%q want=%q", titleAfterRejectedUpdate, storedTitle)
+	}
+
+	unrelatedDraftListingID := uuid.NewString()
+	if _, err := db.Exec(`
+		INSERT INTO public.listing_drafts (user_id, data, current_step, expires_at)
+		VALUES ($1, jsonb_build_object('editingPublicListingId', $2::text), 2, now() + interval '48 hours')
+		ON CONFLICT (user_id) DO UPDATE SET
+			data = EXCLUDED.data,
+			current_step = EXCLUDED.current_step,
+			updated_at = now(),
+			expires_at = EXCLUDED.expires_at
+	`, userID, unrelatedDraftListingID); err != nil {
+		t.Fatal("create unrelated listing draft:", err)
+	}
+	repeatedResult := deleteIntegrationListing(t, app, accessToken, publicListingID)
+	if !repeatedResult.Success || !repeatedResult.AlreadyDeleted {
+		t.Fatalf("repeated soft delete was not idempotent: %#v", repeatedResult)
+	}
+	var unrelatedDrafts int
+	if err := db.QueryRow(`
+		SELECT count(*) FROM public.listing_drafts
+		WHERE user_id = $1 AND data->>'editingPublicListingId' = $2
+	`, userID, unrelatedDraftListingID).Scan(&unrelatedDrafts); err != nil {
+		t.Fatal("count unrelated listing drafts:", err)
+	}
+	if unrelatedDrafts != 1 {
+		t.Fatalf("soft delete removed an unrelated draft: got=%d want=1", unrelatedDrafts)
+	}
+
+	missingResultRequest := httptest.NewRequest("DELETE", "/me/listings/"+uuid.NewString(), nil)
+	missingResultRequest.Header.Set("Authorization", "Bearer "+accessToken)
+	missingResultResponse, err := app.Test(missingResultRequest, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingResultResponse.Body.Close()
+	if missingResultResponse.StatusCode != fiber.StatusNotFound {
+		t.Fatalf("non-owned listing soft delete status=%d want=%d", missingResultResponse.StatusCode, fiber.StatusNotFound)
+	}
+
+}
+
+type integrationDeleteListingResponse struct {
+	Success         bool   `json:"success"`
+	AlreadyDeleted  bool   `json:"already_deleted"`
+	PublicListingID string `json:"public_listing_id"`
+}
+
+func deleteIntegrationListing(t *testing.T, app *fiber.App, accessToken, publicListingID string) integrationDeleteListingResponse {
+	t.Helper()
+	request := httptest.NewRequest("DELETE", "/me/listings/"+url.PathEscape(publicListingID), nil)
+	request.Header.Set("Authorization", "Bearer "+accessToken)
+	response, err := app.Test(request, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != fiber.StatusOK {
+		var errorBody map[string]any
+		_ = json.NewDecoder(response.Body).Decode(&errorBody)
+		t.Fatalf("soft delete listing status=%d body=%v", response.StatusCode, errorBody)
+	}
+	var result integrationDeleteListingResponse
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result.PublicListingID != publicListingID {
+		t.Fatalf("soft delete listing ID mismatch: got=%q want=%q", result.PublicListingID, publicListingID)
+	}
+	return result
+}
+
+func integrationListingRelationCounts(t *testing.T, db *sql.DB, listingID int64) []int {
+	t.Helper()
+	counts := make([]int, 9)
+	if err := db.QueryRow(`
+		SELECT
+			(SELECT count(*) FROM public.listing_media WHERE listing_id = $1),
+			(SELECT count(*) FROM public.listing_category_details WHERE listing_id = $1),
+			(SELECT count(*) FROM public.listing_offers WHERE listing_id = $1),
+			(SELECT count(*) FROM public.listing_contact_profiles WHERE listing_id = $1),
+			(SELECT count(*) FROM public.listing_space_types WHERE listing_id = $1),
+			(SELECT count(*) FROM public.listing_amenities WHERE listing_id = $1),
+			(SELECT count(*) FROM public.listing_use_cases WHERE listing_id = $1),
+			(SELECT count(*) FROM public.listing_discovery_channels WHERE listing_id = $1),
+			(SELECT count(*) FROM public.listing_business_details WHERE listing_id = $1)
+	`, listingID).Scan(
+		&counts[0],
+		&counts[1],
+		&counts[2],
+		&counts[3],
+		&counts[4],
+		&counts[5],
+		&counts[6],
+		&counts[7],
+		&counts[8],
+	); err != nil {
+		t.Fatal("count listing relations:", err)
+	}
+	return counts
+}
+
+func assertIntegrationOwnerListingsExclude(
+	t *testing.T,
+	app *fiber.App,
+	accessToken string,
+	publicListingID string,
+	expectedCount int,
+) {
+	t.Helper()
+	request := httptest.NewRequest("GET", "/me/listings", nil)
+	request.Header.Set("Authorization", "Bearer "+accessToken)
+	response, err := app.Test(request, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != fiber.StatusOK {
+		t.Fatalf("owner listings after soft delete status=%d", response.StatusCode)
+	}
+	var result struct {
+		Listings []myListingResponse `json:"listings"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Listings) != expectedCount {
+		t.Fatalf("owner listing count after soft delete: got=%d want=%d", len(result.Listings), expectedCount)
+	}
+	for _, listing := range result.Listings {
+		if listing.PublicListingID == publicListingID {
+			t.Fatalf("soft-deleted listing %s remained in owner listings", publicListingID)
+		}
+	}
+}
+
+func assertIntegrationSearchContainsListing(t *testing.T, app *fiber.App, publicListingID string, expected bool) {
+	t.Helper()
+	found := false
+	for offset := 0; ; offset += 60 {
+		request := httptest.NewRequest("GET", fmt.Sprintf("/properties/search?limit=60&offset=%d", offset), nil)
+		response, err := app.Test(request, -1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.StatusCode != fiber.StatusOK {
+			var errorBody map[string]any
+			_ = json.NewDecoder(response.Body).Decode(&errorBody)
+			response.Body.Close()
+			t.Fatalf("search listings status=%d body=%v", response.StatusCode, errorBody)
+		}
+		var result struct {
+			Listings []searchListing `json:"listings"`
+			Total    int             `json:"total"`
+		}
+		if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+			response.Body.Close()
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		for _, listing := range result.Listings {
+			if listing.PublicListingID == publicListingID {
+				found = true
+				break
+			}
+		}
+		if found || offset+len(result.Listings) >= result.Total || len(result.Listings) == 0 {
+			break
+		}
+	}
+	if found != expected {
+		t.Fatalf("search visibility for listing %s: got=%v want=%v", publicListingID, found, expected)
+	}
 }
 
 func assertIntegrationListingEditDraftReadable(
@@ -278,6 +736,7 @@ func assertIntegrationListingEditDraftReadable(
 	}
 
 	assertDraftText("editingPublicListingId", publicListingID)
+	assertDraftText("listingMediaLoaded", "yes")
 	expectedPropertyType := payload.PropertyTypeCode
 	if payload.PropertyTypeCode == "serviced_apartment" {
 		expectedPropertyType = "apartment"
@@ -293,6 +752,32 @@ func assertIntegrationListingEditDraftReadable(
 	assertDraftCount("listingPhotoUrls[]", 1)
 	assertDraftCount("listingVideoUrls[]", 1)
 	assertDraftCount("listingPanoramaUrls[]", 1)
+	assertIntegrationEditDraftMediaURLs(t, result.Draft, payload.MediaItems)
+}
+
+func assertIntegrationEditDraftMediaURLs(t *testing.T, draft map[string]any, expected []listingMediaInput) {
+	t.Helper()
+
+	actual := map[string][]string{"image": {}, "video": {}, "360": {}}
+	for mediaType, key := range map[string]string{
+		"image": "listingPhotoUrls[]",
+		"video": "listingVideoUrls[]",
+		"360":   "listingPanoramaUrls[]",
+	} {
+		values, _ := draft[key].([]any)
+		for _, value := range values {
+			if mediaURL, ok := value.(string); ok {
+				actual[mediaType] = append(actual[mediaType], mediaURL)
+			}
+		}
+	}
+	expectedByType := map[string][]string{"image": {}, "video": {}, "360": {}}
+	for _, media := range expected {
+		expectedByType[media.MediaType] = append(expectedByType[media.MediaType], media.URL)
+	}
+	if !reflect.DeepEqual(actual, expectedByType) {
+		t.Fatalf("edit draft media URLs mismatch: got=%#v want=%#v", actual, expectedByType)
+	}
 }
 
 func assertRoomTaxonomySearch(t *testing.T, db *sql.DB) {
@@ -421,6 +906,7 @@ func integrationListingPayload(
 	contactRole, contactAuthority, contactOrganization, contactOrganizationNo := integrationContactProfile(category)
 	payload := createListingRequest{
 		SubmissionKey:           uuid.NewString(),
+		ReplaceMedia:            true,
 		DiscoveryChannelCode:    category.discoveryChannel,
 		PropertyGroupCode:       category.propertyGroup,
 		PropertyTypeCode:        category.propertyType,
@@ -870,6 +1356,149 @@ func createIntegrationListing(t *testing.T, app *fiber.App, accessToken string, 
 		t.Fatal("create listing returned no database ID")
 	}
 	return result.ID
+}
+
+func assertIntegrationListingRejected(
+	t *testing.T,
+	app *fiber.App,
+	accessToken string,
+	payload createListingRequest,
+	expectedError string,
+) {
+	t.Helper()
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest("POST", "/listings", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+accessToken)
+	response, err := app.Test(request, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var result struct {
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != 400 || result.Error != expectedError {
+		t.Fatalf("rejected listing mismatch: status=%d error=%q want=%q", response.StatusCode, result.Error, expectedError)
+	}
+}
+
+func createIntegrationListingConcurrently(
+	t *testing.T,
+	app *fiber.App,
+	db *sql.DB,
+	accessToken string,
+	payload createListingRequest,
+	attempts int,
+) int64 {
+	t.Helper()
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type requestResult struct {
+		id     int64
+		status int
+		err    error
+	}
+	results := make(chan requestResult, attempts)
+	start := make(chan struct{})
+	for attempt := 0; attempt < attempts; attempt++ {
+		go func() {
+			<-start
+			request := httptest.NewRequest("POST", "/listings", bytes.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Authorization", "Bearer "+accessToken)
+			response, requestErr := app.Test(request, -1)
+			if requestErr != nil {
+				results <- requestResult{err: requestErr}
+				return
+			}
+			defer response.Body.Close()
+			var decoded struct {
+				ID    int64  `json:"id"`
+				Error string `json:"error"`
+			}
+			decodeErr := json.NewDecoder(response.Body).Decode(&decoded)
+			if decodeErr != nil {
+				results <- requestResult{status: response.StatusCode, err: decodeErr}
+				return
+			}
+			if response.StatusCode != 201 {
+				results <- requestResult{status: response.StatusCode, err: fmt.Errorf("%s", decoded.Error)}
+				return
+			}
+			results <- requestResult{id: decoded.ID, status: response.StatusCode}
+		}()
+	}
+	close(start)
+
+	var listingID int64
+	for attempt := 0; attempt < attempts; attempt++ {
+		result := <-results
+		if result.err != nil || result.status != 201 || result.id == 0 {
+			t.Fatalf("concurrent listing request failed: status=%d id=%d error=%v", result.status, result.id, result.err)
+		}
+		if listingID == 0 {
+			listingID = result.id
+			continue
+		}
+		if result.id != listingID {
+			t.Fatalf("concurrent submissions created different listings: first=%d got=%d", listingID, result.id)
+		}
+	}
+
+	var rowsWithSubmissionKey int
+	if err := db.QueryRow(`
+		SELECT count(*) FROM public.listings WHERE submission_key = $1
+	`, payload.SubmissionKey).Scan(&rowsWithSubmissionKey); err != nil {
+		t.Fatal(err)
+	}
+	if rowsWithSubmissionKey != 1 {
+		t.Fatalf("concurrent submissions created duplicate rows: got=%d want=1", rowsWithSubmissionKey)
+	}
+	return listingID
+}
+
+func assertIntegrationListingMediaURLs(t *testing.T, db *sql.DB, listingID int64, expected []listingMediaInput) {
+	t.Helper()
+
+	rows, err := db.Query(`
+		SELECT media_type, COALESCE(NULLIF(original_url, ''), NULLIF(file_url, ''), '')
+		FROM public.listing_media
+		WHERE listing_id = $1 AND is_active = true AND deleted_at IS NULL
+		ORDER BY media_type, sort_order, id
+	`, listingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	actualByType := map[string][]string{"image": {}, "video": {}, "360": {}}
+	for rows.Next() {
+		var mediaType, mediaURL string
+		if err := rows.Scan(&mediaType, &mediaURL); err != nil {
+			t.Fatal(err)
+		}
+		actualByType[mediaType] = append(actualByType[mediaType], mediaURL)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	expectedByType := map[string][]string{"image": {}, "video": {}, "360": {}}
+	for _, media := range expected {
+		expectedByType[media.MediaType] = append(expectedByType[media.MediaType], media.URL)
+	}
+	if !reflect.DeepEqual(actualByType, expectedByType) {
+		t.Fatalf("listing media URLs mismatch: got=%#v want=%#v", actualByType, expectedByType)
+	}
 }
 
 func assertIntegrationListingImmediatelyPublished(t *testing.T, db *sql.DB, listingID int64) {
@@ -1597,6 +2226,42 @@ func assertIntegrationOwnerListingsReadable(t *testing.T, app *fiber.App, access
 			t.Fatalf("owner listing %d currency mismatch: got=%q want=%q", listing.ID, listing.Currency, expectedCurrency)
 		}
 	}
+}
+
+func assertIntegrationOwnerListingPrimaryImage(
+	t *testing.T,
+	app *fiber.App,
+	accessToken string,
+	publicListingID string,
+	expectedURL string,
+) {
+	t.Helper()
+	request := httptest.NewRequest("GET", "/me/listings", nil)
+	request.Header.Set("Authorization", "Bearer "+accessToken)
+	response, err := app.Test(request, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 200 {
+		t.Fatalf("read owner listing after media edit status=%d", response.StatusCode)
+	}
+	var result struct {
+		Listings []myListingResponse `json:"listings"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	for _, listing := range result.Listings {
+		if listing.PublicListingID != publicListingID {
+			continue
+		}
+		if listing.PrimaryImageURL != expectedURL {
+			t.Fatalf("owner listing primary image mismatch: got=%q want=%q", listing.PrimaryImageURL, expectedURL)
+		}
+		return
+	}
+	t.Fatalf("edited listing %s was missing from owner listings", publicListingID)
 }
 
 func uploadIntegrationMedia(

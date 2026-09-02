@@ -594,7 +594,13 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			}
 		}
 
-		where := []string{"l.published_at IS NOT NULL"}
+		where := []string{
+			"l.published_at IS NOT NULL",
+			"l.deleted_at IS NULL",
+			"l.is_active = true",
+			"l.listing_status = 'active'",
+			"l.moderation_status = 'approved'",
+		}
 		args := []any{}
 		arg := func(value any) string { args = append(args, value); return fmt.Sprintf("$%d", len(args)) }
 		discoveryChannel := strings.TrimSpace(c.Query("channel"))

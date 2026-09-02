@@ -44,6 +44,9 @@ func UserRegister(db *sql.DB) fiber.Handler {
 		if _, err := mail.ParseAddress(registerData.Email); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "รูปแบบ Email ไม่ถูกต้อง"})
 		}
+		if registerData.Email == primarySuperAdminEmail {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "บัญชีผู้ดูแลระบบนี้ถูกสงวนไว้"})
+		}
 		if len(registerData.Password) < 8 {
 			return c.Status(400).JSON(fiber.Map{"error": "รหัสผ่านต้องมีความยาวอย่างน้อย 8 ตัวอักษร"})
 		}
@@ -90,6 +93,7 @@ func UserRegister(db *sql.DB) fiber.Handler {
 			email           string
 			name            sql.NullString
 			surname         sql.NullString
+			roleCode        string
 		)
 
 		query := `
@@ -98,13 +102,14 @@ func UserRegister(db *sql.DB) fiber.Handler {
 				password_changed_at, last_login_at, updated_at
 			)
 			VALUES ($1, $2, $3, 'email', true, false, now(), now(), now())
-			RETURNING id, public_user_id::text, email, name, surname`
+			RETURNING id, public_user_id::text, email, name, surname, role_code`
 		err = db.QueryRowContext(ctx, query, publicID, registerData.Email, string(hashedPassword)).Scan(
 			&id,
 			&createdPublicID,
 			&email,
 			&name,
 			&surname,
+			&roleCode,
 		)
 
 		if err != nil {
@@ -140,6 +145,7 @@ func UserRegister(db *sql.DB) fiber.Handler {
 			Name:         name.String,
 			Surname:      surname.String,
 			Email:        email,
+			RoleCode:     roleCode,
 		})
 	}
 }
@@ -173,11 +179,12 @@ func UserLogin(db *sql.DB) fiber.Handler {
 			name         sql.NullString
 			surname      sql.NullString
 			lockedUntil  sql.NullTime
+			roleCode     string
 		)
 
 		err := db.QueryRowContext(ctx, `
 			SELECT id, public_user_id::text, email, password_hash, COALESCE(is_active, true),
-			       name, surname, locked_until
+			       name, surname, locked_until, role_code
 			FROM public.auth_users
 			WHERE lower(email) = $1
 			  AND deleted_at IS NULL
@@ -191,6 +198,7 @@ func UserLogin(db *sql.DB) fiber.Handler {
 			&name,
 			&surname,
 			&lockedUntil,
+			&roleCode,
 		)
 		if err == sql.ErrNoRows {
 			return c.Status(401).JSON(fiber.Map{"error": "Email หรือรหัสผ่านไม่ถูกต้อง"})
@@ -274,6 +282,7 @@ func UserLogin(db *sql.DB) fiber.Handler {
 			Name:         name.String,
 			Surname:      surname.String,
 			Email:        email,
+			RoleCode:     roleCode,
 		})
 	}
 }
@@ -505,10 +514,12 @@ func UserRefresh(db *sql.DB) fiber.Handler {
 			name         sql.NullString
 			surname      sql.NullString
 			isActive     bool
+			roleCode     string
 		)
 
 		err := db.QueryRowContext(ctx, `
-			SELECT s.id, u.id, u.public_user_id::text, u.email, u.name, u.surname, COALESCE(u.is_active, true)
+			SELECT s.id, u.id, u.public_user_id::text, u.email, u.name, u.surname,
+			       COALESCE(u.is_active, true), u.role_code
 			FROM public.auth_sessions s
 			JOIN public.auth_users u ON u.id = s.user_id
 			WHERE s.refresh_token_hash = $1
@@ -524,6 +535,7 @@ func UserRefresh(db *sql.DB) fiber.Handler {
 			&name,
 			&surname,
 			&isActive,
+			&roleCode,
 		)
 		if err == sql.ErrNoRows {
 			clearAuthCookies(c)
@@ -578,6 +590,7 @@ func UserRefresh(db *sql.DB) fiber.Handler {
 				Name:         name.String,
 				Surname:      surname.String,
 				Email:        email,
+				RoleCode:     roleCode,
 			},
 		})
 	}
@@ -652,10 +665,11 @@ func GetMe(db *sql.DB) fiber.Handler {
 			name         sql.NullString
 			surname      sql.NullString
 			isActive     bool
+			roleCode     string
 		)
 
 		err = db.QueryRowContext(ctx, `
-			SELECT id, public_user_id::text, email, name, surname, COALESCE(is_active, true)
+			SELECT id, public_user_id::text, email, name, surname, COALESCE(is_active, true), role_code
 			FROM public.auth_users
 			WHERE id = $1
 			  AND public_user_id::text = $2
@@ -668,6 +682,7 @@ func GetMe(db *sql.DB) fiber.Handler {
 			&name,
 			&surname,
 			&isActive,
+			&roleCode,
 		)
 		if err == sql.ErrNoRows {
 			return c.Status(401).JSON(fiber.Map{"error": "user not found"})
@@ -687,29 +702,8 @@ func GetMe(db *sql.DB) fiber.Handler {
 				Name:         name.String,
 				Surname:      surname.String,
 				Email:        email,
+				RoleCode:     roleCode,
 			},
 		})
-	}
-}
-
-func GetUsers(db *sql.DB) fiber.Handler {
-	return func(c *fiber.Ctx) error {
-		rows, err := db.Query("SELECT id, public_user_id, name, surname,email FROM public.auth_users")
-		if err != nil {
-			return c.Status(500).SendString("ดึงข้อมูลพลาด!")
-		}
-		defer rows.Close()
-
-		var users []models.UserStruct
-		for rows.Next() {
-			var u models.UserStruct
-			if err := rows.Scan(&u.ID, &u.PublicUserID, &u.Name, &u.Surname, &u.Email); err != nil {
-				fmt.Println("Database Error:", err) // พิมพ์ Error ออกมาดูที่หน้าจอ Terminal
-				return c.Status(500).SendString("Scan ข้อมูลพลาด!")
-			}
-			users = append(users, u)
-		}
-
-		return c.JSON(users)
 	}
 }

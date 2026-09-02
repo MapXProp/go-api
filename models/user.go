@@ -7,6 +7,7 @@ type UserStruct struct {
 	Name         string `json:"name"`
 	Surname      string `json:"surname"`
 	Email        string `json:"email"`
+	RoleCode     string `json:"role_code"`
 }
 
 // UserRegister คือโครงสร้างข้อมูลที่รับจาก Next.js (Register Form)
@@ -26,6 +27,7 @@ type UserPublic struct {
 	Name         string `json:"name"`
 	Surname      string `json:"surname"`
 	Email        string `json:"email"`
+	RoleCode     string `json:"role_code"`
 }
 
 type UserLoginResponse struct {
@@ -36,6 +38,7 @@ type UserLoginResponse struct {
 	Name         string `json:"name"`
 	Surname      string `json:"surname"`
 	Email        string `json:"email"`
+	RoleCode     string `json:"role_code"`
 }
 
 type UserMeResponse struct {

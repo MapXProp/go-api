@@ -24,6 +24,7 @@ const (
 type createListingRequest struct {
 	SubmissionKey           string              `json:"submission_key"`
 	EditingPublicListingID  string              `json:"editing_public_listing_id"`
+	ReplaceMedia            bool                `json:"replace_media"`
 	DiscoveryChannelCode    string              `json:"discovery_channel_code"`
 	PropertyGroupCode       string              `json:"property_group_code"`
 	PropertyTypeCode        string              `json:"property_type_code"`
@@ -127,8 +128,14 @@ func CreateListing(db *sql.DB) fiber.Handler {
 		if err := req.validate(); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
-		if err := req.validateMediaOwnership(claims.UID); err != nil {
+		if err := req.validateSubmissionIdentity(); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+		replaceMedia := req.EditingPublicListingID == "" || req.ReplaceMedia
+		if replaceMedia {
+			if err := req.validateMediaOwnership(claims.UID); err != nil {
+				return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+			}
 		}
 
 		tx, err := db.BeginTx(ctx, nil)
@@ -144,6 +151,7 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				FROM public.listings
 				WHERE public_listing_id::text = $1
 					AND user_id = $2
+					AND deleted_at IS NULL
 				FOR UPDATE
 			`, req.EditingPublicListingID, claims.UID).Scan(&existingSubmissionKey)
 			if err == sql.ErrNoRows {
@@ -186,6 +194,7 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				contact_name, contact_phone, contact_email, line_id,
 				address_line1, address_line2, postal_code, latitude, longitude,
 				listing_status, moderation_status, published_at,
+				moderation_submitted_at, moderated_at, moderated_by_user_id, moderation_note,
 				business_type_code, space_type_code, target_tenant_type, price_unit,
 				key_money_amount, service_fee_monthly, utilities_included,
 				is_sublease, owner_permission_required, source_channel, listing_scope, accommodation_model,
@@ -203,6 +212,7 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				$27, $28, $29, $30,
 				$31, $32, $33, $34, $35,
 				'active', 'approved', now(),
+				now(), NULL, NULL, NULL,
 				$36, $37, $38, $39,
 				$40, $41, $42,
 				$43, $44, 'web', $45, $46,
@@ -248,6 +258,10 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				listing_status = 'active',
 				moderation_status = 'approved',
 				published_at = COALESCE(public.listings.published_at, now()),
+				moderation_submitted_at = now(),
+				moderated_at = NULL,
+				moderated_by_user_id = NULL,
+				moderation_note = NULL,
 				business_type_code = EXCLUDED.business_type_code,
 				space_type_code = EXCLUDED.space_type_code,
 				target_tenant_type = EXCLUDED.target_tenant_type,
@@ -267,6 +281,7 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				district_name = EXCLUDED.district_name,
 				subdistrict_name = EXCLUDED.subdistrict_name,
 				updated_at = now()
+			WHERE public.listings.deleted_at IS NULL
 			RETURNING id, public_listing_id::text
 		`,
 			claims.UID,
@@ -323,6 +338,9 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			listingNullString(req.SubdistrictName),
 			listingNullString(req.SubmissionKey),
 		).Scan(&listingID, &publicListingID)
+		if err == sql.ErrNoRows {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "listing submission is no longer available"})
+		}
 		if err != nil {
 			fmt.Println("Create Listing Error:", err)
 			return c.Status(500).JSON(fiber.Map{"error": "cannot create listing"})
@@ -338,17 +356,20 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			return c.Status(500).JSON(fiber.Map{"error": "cannot create listing slug"})
 		}
 
-		for _, cleanupQuery := range []string{
+		cleanupQueries := []string{
 			`DELETE FROM public.listing_category_details WHERE listing_id = $1`,
 			`DELETE FROM public.listing_contact_profiles WHERE listing_id = $1`,
 			`DELETE FROM public.listing_space_types WHERE listing_id = $1`,
 			`DELETE FROM public.listing_amenities WHERE listing_id = $1`,
-			`DELETE FROM public.listing_media WHERE listing_id = $1`,
 			`DELETE FROM public.listing_use_cases WHERE listing_id = $1`,
 			`DELETE FROM public.listing_offers WHERE listing_id = $1`,
 			`DELETE FROM public.listing_discovery_channels WHERE listing_id = $1`,
 			`DELETE FROM public.listing_business_details WHERE listing_id = $1`,
-		} {
+		}
+		if replaceMedia {
+			cleanupQueries = append(cleanupQueries, `DELETE FROM public.listing_media WHERE listing_id = $1`)
+		}
+		for _, cleanupQuery := range cleanupQueries {
 			if _, err := tx.ExecContext(ctx, cleanupQuery, listingID); err != nil {
 				fmt.Println("Replace Listing Detail Error:", err)
 				return c.Status(500).JSON(fiber.Map{"error": "cannot replace listing details"})
@@ -429,30 +450,32 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			}
 		}
 
-		imageIndex := 0
-		for index, media := range req.MediaItems {
-			roleCode := listingMediaRole(media.MediaType, imageIndex)
-			if media.MediaType == "image" {
-				imageIndex++
-			}
-			if _, err := tx.ExecContext(ctx, `
+		if replaceMedia {
+			imageIndex := 0
+			for index, media := range req.MediaItems {
+				roleCode := listingMediaRole(media.MediaType, imageIndex)
+				if media.MediaType == "image" {
+					imageIndex++
+				}
+				if _, err := tx.ExecContext(ctx, `
 				INSERT INTO public.listing_media (
 					listing_id, media_type, source_type, role_code, title, alt_text,
 					original_url, file_url, mime_type, sort_order, is_primary, is_active
 				) VALUES ($1, $2, 'user_upload', $3, $4, $5, $6, $6, $7, $8, $9, true)
 			`,
-				listingID,
-				media.MediaType,
-				roleCode,
-				req.Title,
-				req.Title,
-				media.URL,
-				listingMediaMimeType(media.URL),
-				(index+1)*10,
-				media.MediaType == "image" && roleCode == "cover",
-			); err != nil {
-				fmt.Println("Create Listing Media Error:", err)
-				return c.Status(500).JSON(fiber.Map{"error": "cannot attach listing media"})
+					listingID,
+					media.MediaType,
+					roleCode,
+					req.Title,
+					req.Title,
+					media.URL,
+					listingMediaMimeType(media.URL),
+					(index+1)*10,
+					media.MediaType == "image" && roleCode == "cover",
+				); err != nil {
+					fmt.Println("Create Listing Media Error:", err)
+					return c.Status(500).JSON(fiber.Map{"error": "cannot attach listing media"})
+				}
 			}
 		}
 
@@ -559,9 +582,32 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			}
 		}
 
-		if err := verifyCreatedListing(ctx, tx, listingID, req); err != nil {
+		if err := verifyCreatedListing(ctx, tx, listingID, req, replaceMedia); err != nil {
 			fmt.Println("Create Listing Verification Error:", err)
 			return c.Status(500).JSON(fiber.Map{"error": "cannot verify saved listing"})
+		}
+
+		if req.EditingPublicListingID == "" {
+			notificationDedupeKey := "listing-auto-published:" + req.SubmissionKey
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO public.user_notifications (
+					user_id, notification_type, title_th, title_en,
+					body_th, body_en, action_url, listing_id, dedupe_key
+				) VALUES ($1, 'listing_published', $2, $3, $4, $5, $6, $7, $8)
+				ON CONFLICT (user_id, dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING
+			`,
+				claims.UID,
+				"ประกาศของคุณเผยแพร่แล้ว",
+				"Your listing is now live",
+				fmt.Sprintf("ประกาศ “%s” บันทึกสำเร็จและเผยแพร่บน MapXProp แล้ว", req.Title),
+				fmt.Sprintf("Your listing “%s” was saved and is now live on MapXProp.", req.Title),
+				"/real-estate-listings/"+slug,
+				listingID,
+				notificationDedupeKey,
+			); err != nil {
+				fmt.Println("Create Listing Notification Error:", err)
+				return c.Status(500).JSON(fiber.Map{"error": "cannot notify listing owner"})
+			}
 		}
 
 		if err := tx.Commit(); err != nil {
@@ -574,11 +620,12 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			"public_listing_id": publicListingID,
 			"slug":              slug,
 			"status":            "active",
+			"moderation_status": "approved",
 		})
 	}
 }
 
-func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req createListingRequest) error {
+func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req createListingRequest, verifyMedia bool) error {
 	var (
 		secondaryPhone string
 		instagram      string
@@ -635,7 +682,7 @@ func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req 
 	if accommodation != req.AccommodationModel {
 		return fmt.Errorf("accommodation model was not persisted")
 	}
-	if mediaCount != len(req.MediaItems) {
+	if verifyMedia && mediaCount != len(req.MediaItems) {
 		return fmt.Errorf("media count mismatch: got %d want %d", mediaCount, len(req.MediaItems))
 	}
 	if spaceTypeCount != len(req.SpaceTypeCodes) {
@@ -921,6 +968,13 @@ func (req createListingRequest) validate() error {
 	}
 	if mediaCounts["image"] > maxListingImages || mediaCounts["video"] > maxListingVideos || mediaCounts["360"] > maxListingPanoramas {
 		return fmt.Errorf("listing media limit exceeded")
+	}
+	return nil
+}
+
+func (req createListingRequest) validateSubmissionIdentity() error {
+	if req.EditingPublicListingID == "" && req.SubmissionKey == "" {
+		return fmt.Errorf("submission key is required")
 	}
 	return nil
 }

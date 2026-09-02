@@ -313,16 +313,20 @@ func createOAuthUser(ctx context.Context, tx *sql.Tx, profile *socialAuthProfile
 	if name == "" && surname == "" {
 		name, surname = splitDisplayName(profile.DisplayName)
 	}
+	roleCode := platformRoleMember
+	if strings.EqualFold(profile.Email, primarySuperAdminEmail) && profile.EmailVerified {
+		roleCode = platformRoleSuperAdmin
+	}
 
 	var user oauthUser
 	err := tx.QueryRowContext(ctx, `
 		INSERT INTO public.auth_users (
 			public_user_id, email, name, surname, is_active, is_verified,
-			provider, provider_id, email_verified_at, last_login_at, updated_at
+			provider, provider_id, email_verified_at, last_login_at, updated_at, role_code
 		)
-		VALUES ($1, $2, $3, $4, true, $5, $6, $7, now(), now(), now())
+		VALUES ($1, $2, $3, $4, true, $5, $6, $7, now(), now(), now(), $8)
 		RETURNING id, public_user_id::text, email, name, surname, COALESCE(is_active, true)
-	`, publicUserID, profile.Email, nullString(name), nullString(surname), profile.EmailVerified, profile.Provider, profile.ProviderUserID).Scan(
+	`, publicUserID, profile.Email, nullString(name), nullString(surname), profile.EmailVerified, profile.Provider, profile.ProviderUserID, roleCode).Scan(
 		&user.ID,
 		&user.PublicUserID,
 		&user.Email,

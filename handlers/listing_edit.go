@@ -399,6 +399,7 @@ func loadListingMediaIntoDraft(ctx context.Context, db *sql.DB, listingID int64,
 	putDraftStrings(draft, "listingPhotoUrls[]", photos)
 	putDraftStrings(draft, "listingVideoUrls[]", videos)
 	putDraftStrings(draft, "listingPanoramaUrls[]", panoramas)
+	draft["listingMediaLoaded"] = "yes"
 	draft["selectedPhotoCount"] = strconv.Itoa(len(photos))
 	draft["selectedVideoCount"] = strconv.Itoa(len(videos))
 	draft["selectedPanoramaCount"] = strconv.Itoa(len(panoramas))

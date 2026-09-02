@@ -96,12 +96,13 @@ func UpdateMyProfile(db *sql.DB) fiber.Handler {
 			WHERE id = $3
 			  AND public_user_id::text = $4
 			  AND deleted_at IS NULL
-			RETURNING public_user_id::text, COALESCE(name, ''), COALESCE(surname, ''), email
+			RETURNING public_user_id::text, COALESCE(name, ''), COALESCE(surname, ''), email, role_code
 		`, req.Name, req.Surname, claims.UID, claims.Sub).Scan(
 			&user.PublicUserID,
 			&user.Name,
 			&user.Surname,
 			&user.Email,
+			&user.RoleCode,
 		)
 		if err == sql.ErrNoRows {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "user not found"})
