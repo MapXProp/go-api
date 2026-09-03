@@ -93,6 +93,10 @@ type searchListing struct {
 	EventStartsOn      *time.Time `json:"event_starts_on,omitempty"`
 	EventEndsOn        *time.Time `json:"event_ends_on,omitempty"`
 	PriceOnRequest     bool       `json:"price_on_request"`
+	OfferType          string     `json:"offer_type"`
+	OfferAmount        *float64   `json:"offer_amount,omitempty"`
+	OfferPriceUnit     string     `json:"offer_price_unit"`
+	TemporarySpaceDays *int       `json:"temporary_space_duration_days,omitempty"`
 	IsVerified         bool       `json:"is_verified"`
 	SourceType         string     `json:"source_type"`
 }
@@ -733,6 +737,9 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			COALESCE(led.event_name,''), COALESCE(led.venue_floor_label,''),
 			COALESCE(er.round_count,0), er.starts_on, er.ends_on,
 			COALESCE((lcd.details->>'price_on_request')::boolean, led.price_on_request, false),
+			COALESCE(so.offer_type,''), so.amount, COALESCE(so.price_unit,''),
+			CASE WHEN COALESCE(lcd.details->>'temporary_space_duration_days','') ~ '^[1-9][0-9]*$'
+				THEN (lcd.details->>'temporary_space_duration_days')::integer END,
 			l.is_verified, COALESCE(ls.source_type,''),
 			count(*) OVER() AS total_count
 		FROM public.listings l
@@ -772,6 +779,18 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			) gallery
 		) pm ON true
 		LEFT JOIN LATERAL (
+			SELECT offer_type, amount, price_unit
+			FROM public.listing_offers
+			WHERE listing_id = l.id
+			ORDER BY CASE offer_type
+				WHEN 'contact_organizer' THEN 0
+				WHEN 'rent' THEN 1
+				WHEN 'sublease' THEN 2
+				ELSE 3
+			END, id
+			LIMIT 1
+		) so ON true
+		LEFT JOIN LATERAL (
 			SELECT source_type
 			FROM public.listing_sources
 			WHERE listing_id = l.id
@@ -790,10 +809,10 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		total := 0
 		for rows.Next() {
 			var item searchListing
-			var sale, rent, area, landArea, lat, lng sql.NullFloat64
-			var beds, baths sql.NullInt64
+			var sale, rent, area, landArea, lat, lng, offerAmount sql.NullFloat64
+			var beds, baths, temporarySpaceDays sql.NullInt64
 			var published, eventStartsOn, eventEndsOn sql.NullTime
-			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.Description, &item.PropertyTypeCode, &item.AccommodationModel, &item.ListingType, &item.ProjectName, &item.Address, &item.Province, &item.District, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, pq.Array(&item.ImageURLs), &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.IsVerified, &item.SourceType, &total); err != nil {
+			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.Description, &item.PropertyTypeCode, &item.AccommodationModel, &item.ListingType, &item.ProjectName, &item.Address, &item.Province, &item.District, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, pq.Array(&item.ImageURLs), &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.OfferType, &offerAmount, &item.OfferPriceUnit, &temporarySpaceDays, &item.IsVerified, &item.SourceType, &total); err != nil {
 				return c.Status(500).JSON(fiber.Map{"error": "cannot read properties"})
 			}
 			if sale.Valid {
@@ -801,6 +820,13 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			}
 			if rent.Valid {
 				item.RentPriceMonthly = &rent.Float64
+			}
+			if offerAmount.Valid {
+				item.OfferAmount = &offerAmount.Float64
+			}
+			if temporarySpaceDays.Valid {
+				value := int(temporarySpaceDays.Int64)
+				item.TemporarySpaceDays = &value
 			}
 			if beds.Valid {
 				v := int(beds.Int64)

@@ -18,10 +18,14 @@ func TestCreateListingRequiresIdempotencyKeyForNewListings(t *testing.T) {
 
 func TestCreateListingNormalizeKeepsPrimarySpaceTypeFirst(t *testing.T) {
 	req := createListingRequest{
-		PropertyTypeCode: "retail_space",
-		Title:            "Event booth in a mall",
-		SpaceTypeCode:    "event_booth",
-		SpaceTypeCodes:   []string{"mall_kiosk", "event_booth", "mall_kiosk"},
+		PropertyTypeCode:    "retail_space",
+		Title:               "Event booth in a mall",
+		ListingType:         "rent",
+		OfferTypes:          []string{"rent"},
+		SpaceTypeCode:       "event_booth",
+		SpaceTypeCodes:      []string{"mall_kiosk", "event_booth", "mall_kiosk"},
+		TemporarySpacePrice: "5000",
+		TemporarySpaceDays:  "3",
 	}
 
 	req.normalize()
@@ -34,6 +38,16 @@ func TestCreateListingNormalizeKeepsPrimarySpaceTypeFirst(t *testing.T) {
 		if req.SpaceTypeCodes[index] != want[index] {
 			t.Fatalf("space types: %#v", req.SpaceTypeCodes)
 		}
+	}
+	if req.ListingType != "rent" || len(req.OfferTypes) != 1 || req.OfferTypes[0] != "rent" {
+		t.Fatalf("temporary space fixed-price mode: listing_type=%q offers=%#v", req.ListingType, req.OfferTypes)
+	}
+	if req.PriceOnRequest || req.PriceUnit != "event_period" {
+		t.Fatalf("temporary space fixed pricing: price_on_request=%v price_unit=%q", req.PriceOnRequest, req.PriceUnit)
+	}
+	amount, unit := req.offerAmount("rent")
+	if amount != float64(5000) || unit != "event_period" {
+		t.Fatalf("temporary space offer amount: amount=%v unit=%q", amount, unit)
 	}
 }
 
@@ -67,11 +81,11 @@ func TestCreateListingValidateAcceptsOverlappingRetailSpaceTypes(t *testing.T) {
 		PropertyTypeCode:  "retail_space",
 		ListingScope:      "space_slot",
 		UsageType:         "business",
-		ListingType:       "event_booking",
+		ListingType:       "contact_organizer",
 		Title:             "Event booth in a mall",
 		Description:       validListingDescription,
 		UseCaseCodes:      []string{"retail"},
-		OfferTypes:        []string{"event_booking"},
+		OfferTypes:        []string{"contact_organizer"},
 		SpaceTypeCode:     "mall_kiosk",
 		SpaceTypeCodes:    []string{"mall_kiosk", "event_booth"},
 		ProvinceName:      "Bangkok",

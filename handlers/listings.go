@@ -88,6 +88,8 @@ type createListingRequest struct {
 	AllowedBusinessTypes    []string            `json:"allowed_business_types"`
 	Amenities               []string            `json:"amenities"`
 	EventBookingPrice       string              `json:"event_booking_price"`
+	TemporarySpacePrice     string              `json:"temporary_space_price"`
+	TemporarySpaceDays      string              `json:"temporary_space_duration_days"`
 	PriceOnRequest          bool                `json:"price_on_request"`
 	Currency                string              `json:"currency"`
 	CategoryDetails         map[string]any      `json:"category_details"`
@@ -494,7 +496,7 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			amount, priceUnit := req.offerAmount(offerType)
 			var minimumContractMonths any
 			var serviceFeeMonthly any
-			if inSet(offerType, "rent", "sublease") {
+			if inSet(offerType, "rent", "sublease") && !req.isTemporarySpace() {
 				minimumContractMonths = listingNullInt(req.MinimumLeaseMonths)
 				serviceFeeMonthly = listingNullFloat(req.ServiceFeeMonthly)
 			}
@@ -724,6 +726,22 @@ func (req *createListingRequest) normalize() {
 	req.OfferTypes = cleanStringSlice(req.OfferTypes)
 	req.UsageType = cleanCode(req.UsageType, "residence")
 	req.ListingType = cleanCode(req.ListingType, "rent")
+	if req.ListingType == "event_booking" {
+		req.ListingType = "contact_organizer"
+	}
+	for index, offerType := range req.OfferTypes {
+		if offerType == "event_booking" {
+			req.OfferTypes[index] = "contact_organizer"
+		}
+	}
+	req.OfferTypes = cleanStringSlice(req.OfferTypes)
+	if len(req.OfferTypes) == 0 {
+		if req.ListingType == "sale_and_rent" {
+			req.OfferTypes = []string{"sale", "rent"}
+		} else {
+			req.OfferTypes = []string{req.ListingType}
+		}
+	}
 	req.SpaceTypeCode = cleanCode(req.SpaceTypeCode, "")
 	req.SpaceTypeCodes = cleanStringSlice(req.SpaceTypeCodes)
 	if req.SpaceTypeCode == "" && len(req.SpaceTypeCodes) > 0 {
@@ -740,6 +758,21 @@ func (req *createListingRequest) normalize() {
 	}
 	req.BusinessTypeCode = cleanCode(req.BusinessTypeCode, "")
 	req.PriceUnit = cleanCode(req.PriceUnit, "")
+	if req.ListingType == "contact_organizer" || inSet("contact_organizer", req.OfferTypes...) {
+		req.ListingType = "contact_organizer"
+		req.OfferTypes = []string{"contact_organizer"}
+		req.PriceUnit = "contact"
+		req.PriceOnRequest = true
+	} else if req.isTemporarySpace() {
+		req.PriceOnRequest = false
+		if inSet("rent", req.OfferTypes...) || inSet("sublease", req.OfferTypes...) {
+			req.PriceUnit = "event_period"
+		}
+		req.RentPriceMonthly = ""
+		req.RentPriceDaily = ""
+		req.MinimumLeaseMonths = ""
+		req.ServiceFeeMonthly = ""
+	}
 	req.Title = strings.TrimSpace(req.Title)
 	req.Description = strings.TrimSpace(req.Description)
 	req.CustomProjectName = strings.TrimSpace(req.CustomProjectName)
@@ -777,6 +810,8 @@ func (req *createListingRequest) normalize() {
 		req.RentPriceDaily = ""
 		req.KeyMoneyAmount = ""
 		req.EventBookingPrice = ""
+		req.TemporarySpacePrice = ""
+		req.TemporarySpaceDays = ""
 		req.ServiceFeeMonthly = ""
 		req.PriceNegotiable = false
 	}
@@ -791,6 +826,11 @@ func (req *createListingRequest) normalize() {
 		req.CategoryDetails = map[string]any{}
 	}
 	req.CategoryDetails["price_on_request"] = req.PriceOnRequest
+	if req.isTemporarySpace() && !req.PriceOnRequest && (inSet("rent", req.OfferTypes...) || inSet("sublease", req.OfferTypes...)) {
+		req.CategoryDetails["temporary_space_duration_days"] = req.TemporarySpaceDays
+	} else {
+		delete(req.CategoryDetails, "temporary_space_duration_days")
+	}
 	req.CategoryDetails["submission_mode"] = "minimum"
 	if req.PropertyTypeCode == "apartment" {
 		req.CategoryDetails["accommodation_model"] = req.AccommodationModel
@@ -806,13 +846,6 @@ func (req *createListingRequest) normalize() {
 			req.UseCaseCodes = []string{"residential", "office"}
 		default:
 			req.UseCaseCodes = []string{"residential"}
-		}
-	}
-	if len(req.OfferTypes) == 0 {
-		if req.ListingType == "sale_and_rent" {
-			req.OfferTypes = []string{"sale", "rent"}
-		} else {
-			req.OfferTypes = []string{req.ListingType}
 		}
 	}
 }
@@ -858,7 +891,7 @@ func (req createListingRequest) validate() error {
 	if !inSet(req.UsageType, "residence", "business", "mixed") {
 		return fmt.Errorf("invalid usage type")
 	}
-	if !inSet(req.ListingType, "sale", "rent", "sale_and_rent", "lease", "sublease", "business_transfer", "event_booking") {
+	if !inSet(req.ListingType, "sale", "rent", "sale_and_rent", "lease", "sublease", "business_transfer", "contact_organizer") {
 		return fmt.Errorf("invalid listing type")
 	}
 	for _, useCaseCode := range req.UseCaseCodes {
@@ -867,8 +900,19 @@ func (req createListingRequest) validate() error {
 		}
 	}
 	for _, offerType := range req.OfferTypes {
-		if !inSet(offerType, "sale", "rent", "sublease", "business_transfer", "event_booking") {
+		if !inSet(offerType, "sale", "rent", "sublease", "business_transfer", "contact_organizer") {
 			return fmt.Errorf("invalid offer type")
+		}
+	}
+	if inSet("contact_organizer", req.OfferTypes...) && !req.isTemporarySpace() {
+		return fmt.Errorf("contact organizer is only valid for temporary-space listings")
+	}
+	if req.isTemporarySpace() && (inSet("rent", req.OfferTypes...) || inSet("sublease", req.OfferTypes...)) {
+		if !validPositiveListingFloat(req.TemporarySpacePrice) {
+			return fmt.Errorf("temporary space rental price must be greater than zero")
+		}
+		if !validPositiveListingInt(req.TemporarySpaceDays) {
+			return fmt.Errorf("temporary space rental duration must be a positive whole number of days")
 		}
 	}
 	if req.Currency != "" && !validListingCurrency(req.Currency) {
@@ -1072,20 +1116,23 @@ func (req createListingRequest) businessAllowsCooking() bool {
 	return false
 }
 
+func (req createListingRequest) isTemporarySpace() bool {
+	return req.SpaceTypeCode == "event_booth" || inSet("event_booth", req.SpaceTypeCodes...)
+}
+
 func (req createListingRequest) offerAmount(offerType string) (any, string) {
 	switch offerType {
 	case "sale":
 		return listingNullFloat(req.SalePrice), "total"
 	case "rent", "sublease":
+		if req.isTemporarySpace() {
+			return listingNullFloat(req.TemporarySpacePrice), "event_period"
+		}
 		return listingNullFloat(req.RentPriceMonthly), "month"
 	case "business_transfer":
 		return listingNullFloat(req.KeyMoneyAmount), "total"
-	case "event_booking":
-		priceUnit := req.PriceUnit
-		if priceUnit == "" {
-			priceUnit = "event_round"
-		}
-		return listingNullFloat(req.EventBookingPrice), priceUnit
+	case "contact_organizer":
+		return nil, "contact"
 	default:
 		return nil, "total"
 	}

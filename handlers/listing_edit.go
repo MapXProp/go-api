@@ -346,11 +346,13 @@ func loadListingOffersIntoDraft(ctx context.Context, db *sql.DB, listingID int64
 		case "sale":
 			putDraftText(draft, "salePrice", amountText)
 		case "rent", "sublease":
-			putDraftText(draft, "rentPriceMonthly", amountText)
+			if priceUnit == "event_period" {
+				putDraftText(draft, "temporarySpacePrice", amountText)
+			} else {
+				putDraftText(draft, "rentPriceMonthly", amountText)
+			}
 		case "business_transfer":
 			putDraftText(draft, "keyMoneyAmount", amountText)
-		case "event_booking":
-			putDraftText(draft, "eventBookingPrice", amountText)
 		}
 	}
 	if err := rows.Err(); err != nil {
