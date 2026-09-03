@@ -81,11 +81,12 @@ func TestCreateListingValidateAcceptsOverlappingRetailSpaceTypes(t *testing.T) {
 		PropertyTypeCode:  "retail_space",
 		ListingScope:      "space_slot",
 		UsageType:         "business",
-		ListingType:       "contact_organizer",
+		ListingType:       "rent",
 		Title:             "Event booth in a mall",
 		Description:       validListingDescription,
 		UseCaseCodes:      []string{"retail"},
-		OfferTypes:        []string{"contact_organizer"},
+		OfferTypes:        []string{"rent"},
+		PriceOnRequest:    true,
 		SpaceTypeCode:     "mall_kiosk",
 		SpaceTypeCodes:    []string{"mall_kiosk", "event_booth"},
 		ProvinceName:      "Bangkok",
@@ -95,6 +96,29 @@ func TestCreateListingValidateAcceptsOverlappingRetailSpaceTypes(t *testing.T) {
 
 	if err := req.validate(); err != nil {
 		t.Fatalf("unexpected validation error: %v", err)
+	}
+}
+
+func TestCreateListingNormalizeMovesLegacyContactOrganizerToPricing(t *testing.T) {
+	req := createListingRequest{
+		ListingType:         "contact_organizer",
+		OfferTypes:          []string{"contact_organizer"},
+		SpaceTypeCode:       "event_booth",
+		TemporarySpacePrice: "5000",
+		TemporarySpaceDays:  "3",
+		CategoryDetails:     map[string]any{},
+	}
+
+	req.normalize()
+
+	if req.ListingType != "rent" || len(req.OfferTypes) != 1 || req.OfferTypes[0] != "rent" {
+		t.Fatalf("legacy contact organizer was not normalized to rent: listing_type=%q offers=%#v", req.ListingType, req.OfferTypes)
+	}
+	if !req.PriceOnRequest || req.TemporarySpacePrice != "" || req.TemporarySpaceDays != "" {
+		t.Fatalf("legacy contact organizer was not normalized to price on request: %#v", req)
+	}
+	if req.CategoryDetails["temporary_space_pricing_mode"] != "contact_organizer" {
+		t.Fatalf("unexpected temporary-space pricing mode: %#v", req.CategoryDetails)
 	}
 }
 

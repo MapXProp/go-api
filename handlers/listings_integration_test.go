@@ -51,7 +51,7 @@ var selectableListingCategoryCases = []listingCategoryIntegrationCase{
 	{propertyType: "serviced_apartment", expectedPropertyType: "apartment", expectedAccommodationModel: "serviced", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"residential", "hospitality"}, offerTypes: []string{"rent"}, usageType: "mixed", listingType: "rent"},
 	{propertyType: "monthly_hotel", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"hospitality"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent"},
 	{propertyType: "office", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "single_unit", useCases: []string{"office"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent"},
-	{propertyType: "retail_space", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "space_slot", useCases: []string{"retail", "food_service"}, offerTypes: []string{"contact_organizer"}, usageType: "business", listingType: "contact_organizer", spaceTypes: []string{"market_stall", "event_booth"}},
+	{propertyType: "retail_space", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "space_slot", useCases: []string{"retail", "food_service"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent", spaceTypes: []string{"market_stall", "event_booth"}},
 	{propertyType: "warehouse", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "whole_property", useCases: []string{"storage"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent"},
 	{propertyType: "factory", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "whole_property", useCases: []string{"industrial"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent"},
 	{propertyType: "hotel_resort", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "whole_property", useCases: []string{"hospitality"}, offerTypes: []string{"sale", "business_transfer"}, usageType: "business", listingType: "sale_and_rent"},
@@ -982,9 +982,10 @@ func integrationListingPayload(
 				payload.RentPriceMonthly = "25000"
 				payload.ServiceFeeMonthly = "1500"
 			}
-		case "contact_organizer":
-			payload.PriceOnRequest = true
 		}
+	}
+	if inSet("event_booth", category.spaceTypes...) {
+		payload.PriceOnRequest = true
 	}
 	if category.propertyType == "monthly_hotel" {
 		payload.RentPriceDaily = "2000"
@@ -1613,7 +1614,7 @@ func assertIntegrationListingPersisted(
 				OR ($9 = true AND (
 					(offer_type = 'rent' AND amount IS NULL AND price_unit = 'month'
 						AND minimum_contract_months = 12 AND service_fee_monthly IS NULL AND is_negotiable = false)
-					OR (offer_type = 'contact_organizer' AND amount IS NULL AND price_unit = 'contact'
+					OR (offer_type = 'rent' AND amount IS NULL AND price_unit = 'event_period'
 						AND minimum_contract_months IS NULL AND service_fee_monthly IS NULL AND is_negotiable = false)
 				))
 			   )),
@@ -2159,9 +2160,7 @@ func assertIntegrationListingDetailReadable(
 func assertIntegrationPublicOffer(t *testing.T, detail listingDetailResponse, category listingCategoryIntegrationCase, payload createListingRequest) {
 	t.Helper()
 	expectedType := category.offerTypes[0]
-	if inSet("contact_organizer", category.offerTypes...) {
-		expectedType = "contact_organizer"
-	} else if inSet("rent", category.offerTypes...) {
+	if inSet("rent", category.offerTypes...) {
 		expectedType = "rent"
 	} else if inSet("sublease", category.offerTypes...) {
 		expectedType = "sublease"
@@ -2172,12 +2171,15 @@ func assertIntegrationPublicOffer(t *testing.T, detail listingDetailResponse, ca
 	case "sale":
 		expectedAmount = payload.SalePrice
 	case "rent", "sublease":
-		expectedAmount = payload.RentPriceMonthly
-		expectedUnit = "month"
+		if inSet("event_booth", category.spaceTypes...) {
+			expectedAmount = payload.TemporarySpacePrice
+			expectedUnit = "event_period"
+		} else {
+			expectedAmount = payload.RentPriceMonthly
+			expectedUnit = "month"
+		}
 	case "business_transfer":
 		expectedAmount = payload.KeyMoneyAmount
-	case "contact_organizer":
-		expectedUnit = "contact"
 	}
 	if detail.OfferType != expectedType || detail.PriceUnit != expectedUnit || detail.Currency != payload.Currency {
 		t.Fatalf("public offer mismatch: type=%q/%q unit=%q/%q currency=%q/%q", detail.OfferType, expectedType, detail.PriceUnit, expectedUnit, detail.Currency, payload.Currency)

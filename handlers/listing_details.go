@@ -202,7 +202,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				SELECT offer_type, amount, price_unit, currency_code
 				FROM public.listing_offers
 				WHERE listing_id = l.id
-				ORDER BY CASE offer_type WHEN 'contact_organizer' THEN 0 WHEN 'rent' THEN 1 ELSE 2 END, id
+				ORDER BY CASE offer_type WHEN 'rent' THEN 0 WHEN 'sublease' THEN 1 ELSE 2 END, id
 				LIMIT 1
 			) lo ON true
 			LEFT JOIN public.listing_event_details led ON led.listing_id = l.id

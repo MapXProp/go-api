@@ -726,15 +726,19 @@ func (req *createListingRequest) normalize() {
 	req.OfferTypes = cleanStringSlice(req.OfferTypes)
 	req.UsageType = cleanCode(req.UsageType, "residence")
 	req.ListingType = cleanCode(req.ListingType, "rent")
-	if req.ListingType == "event_booking" {
-		req.ListingType = "contact_organizer"
+	legacyContactOrganizer := req.ListingType == "contact_organizer" || inSet("contact_organizer", req.OfferTypes...)
+	if req.ListingType == "event_booking" || req.ListingType == "contact_organizer" {
+		req.ListingType = "rent"
 	}
 	for index, offerType := range req.OfferTypes {
-		if offerType == "event_booking" {
-			req.OfferTypes[index] = "contact_organizer"
+		if offerType == "event_booking" || offerType == "contact_organizer" {
+			req.OfferTypes[index] = "rent"
 		}
 	}
 	req.OfferTypes = cleanStringSlice(req.OfferTypes)
+	if legacyContactOrganizer {
+		req.PriceOnRequest = true
+	}
 	if len(req.OfferTypes) == 0 {
 		if req.ListingType == "sale_and_rent" {
 			req.OfferTypes = []string{"sale", "rent"}
@@ -758,13 +762,7 @@ func (req *createListingRequest) normalize() {
 	}
 	req.BusinessTypeCode = cleanCode(req.BusinessTypeCode, "")
 	req.PriceUnit = cleanCode(req.PriceUnit, "")
-	if req.ListingType == "contact_organizer" || inSet("contact_organizer", req.OfferTypes...) {
-		req.ListingType = "contact_organizer"
-		req.OfferTypes = []string{"contact_organizer"}
-		req.PriceUnit = "contact"
-		req.PriceOnRequest = true
-	} else if req.isTemporarySpace() {
-		req.PriceOnRequest = false
+	if req.isTemporarySpace() {
 		if inSet("rent", req.OfferTypes...) || inSet("sublease", req.OfferTypes...) {
 			req.PriceUnit = "event_period"
 		}
@@ -826,6 +824,15 @@ func (req *createListingRequest) normalize() {
 		req.CategoryDetails = map[string]any{}
 	}
 	req.CategoryDetails["price_on_request"] = req.PriceOnRequest
+	if req.isTemporarySpace() {
+		if req.PriceOnRequest {
+			req.CategoryDetails["temporary_space_pricing_mode"] = "contact_organizer"
+		} else {
+			req.CategoryDetails["temporary_space_pricing_mode"] = "fixed"
+		}
+	} else {
+		delete(req.CategoryDetails, "temporary_space_pricing_mode")
+	}
 	if req.isTemporarySpace() && !req.PriceOnRequest && (inSet("rent", req.OfferTypes...) || inSet("sublease", req.OfferTypes...)) {
 		req.CategoryDetails["temporary_space_duration_days"] = req.TemporarySpaceDays
 	} else {
@@ -891,7 +898,7 @@ func (req createListingRequest) validate() error {
 	if !inSet(req.UsageType, "residence", "business", "mixed") {
 		return fmt.Errorf("invalid usage type")
 	}
-	if !inSet(req.ListingType, "sale", "rent", "sale_and_rent", "lease", "sublease", "business_transfer", "contact_organizer") {
+	if !inSet(req.ListingType, "sale", "rent", "sale_and_rent", "lease", "sublease", "business_transfer") {
 		return fmt.Errorf("invalid listing type")
 	}
 	for _, useCaseCode := range req.UseCaseCodes {
@@ -900,14 +907,11 @@ func (req createListingRequest) validate() error {
 		}
 	}
 	for _, offerType := range req.OfferTypes {
-		if !inSet(offerType, "sale", "rent", "sublease", "business_transfer", "contact_organizer") {
+		if !inSet(offerType, "sale", "rent", "sublease", "business_transfer") {
 			return fmt.Errorf("invalid offer type")
 		}
 	}
-	if inSet("contact_organizer", req.OfferTypes...) && !req.isTemporarySpace() {
-		return fmt.Errorf("contact organizer is only valid for temporary-space listings")
-	}
-	if req.isTemporarySpace() && (inSet("rent", req.OfferTypes...) || inSet("sublease", req.OfferTypes...)) {
+	if req.isTemporarySpace() && !req.PriceOnRequest && (inSet("rent", req.OfferTypes...) || inSet("sublease", req.OfferTypes...)) {
 		if !validPositiveListingFloat(req.TemporarySpacePrice) {
 			return fmt.Errorf("temporary space rental price must be greater than zero")
 		}
@@ -1131,8 +1135,6 @@ func (req createListingRequest) offerAmount(offerType string) (any, string) {
 		return listingNullFloat(req.RentPriceMonthly), "month"
 	case "business_transfer":
 		return listingNullFloat(req.KeyMoneyAmount), "total"
-	case "contact_organizer":
-		return nil, "contact"
 	default:
 		return nil, "total"
 	}

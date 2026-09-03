@@ -783,7 +783,6 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			FROM public.listing_offers
 			WHERE listing_id = l.id
 			ORDER BY CASE offer_type
-				WHEN 'contact_organizer' THEN 0
 				WHEN 'rent' THEN 1
 				WHEN 'sublease' THEN 2
 				ELSE 3
