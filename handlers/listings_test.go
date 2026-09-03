@@ -24,8 +24,8 @@ func TestCreateListingNormalizeKeepsPrimarySpaceTypeFirst(t *testing.T) {
 		OfferTypes:          []string{"rent"},
 		SpaceTypeCode:       "event_booth",
 		SpaceTypeCodes:      []string{"mall_kiosk", "event_booth", "mall_kiosk"},
+		PriceUnit:           "day",
 		TemporarySpacePrice: "5000",
-		TemporarySpaceDays:  "3",
 	}
 
 	req.normalize()
@@ -42,12 +42,106 @@ func TestCreateListingNormalizeKeepsPrimarySpaceTypeFirst(t *testing.T) {
 	if req.ListingType != "rent" || len(req.OfferTypes) != 1 || req.OfferTypes[0] != "rent" {
 		t.Fatalf("temporary space fixed-price mode: listing_type=%q offers=%#v", req.ListingType, req.OfferTypes)
 	}
-	if req.PriceOnRequest || req.PriceUnit != "event_period" {
+	if req.PriceOnRequest || req.PriceUnit != "day" {
 		t.Fatalf("temporary space fixed pricing: price_on_request=%v price_unit=%q", req.PriceOnRequest, req.PriceUnit)
 	}
 	amount, unit := req.offerAmount("rent")
-	if amount != float64(5000) || unit != "event_period" {
+	if amount != float64(5000) || unit != "day" {
 		t.Fatalf("temporary space offer amount: amount=%v unit=%q", amount, unit)
+	}
+}
+
+func TestCreateListingNormalizeDefaultsTemporarySpacePriceToWholeEvent(t *testing.T) {
+	req := createListingRequest{
+		PropertyTypeCode:    "retail_space",
+		ListingType:         "rent",
+		OfferTypes:          []string{"rent"},
+		SpaceTypeCode:       "event_booth",
+		TemporarySpacePrice: "5000",
+	}
+
+	req.normalize()
+
+	amount, unit := req.offerAmount("rent")
+	if req.PriceUnit != "event_period" || amount != float64(5000) || unit != "event_period" {
+		t.Fatalf("temporary space whole-event price: price_unit=%q amount=%v offer_unit=%q", req.PriceUnit, amount, unit)
+	}
+}
+
+func TestCreateListingNormalizeSupportsWeeklyRetailRentAndUpfrontCosts(t *testing.T) {
+	req := createListingRequest{
+		PropertyTypeCode:   "retail_space",
+		ListingType:        "rent",
+		OfferTypes:         []string{"rent"},
+		SpaceTypeCode:      "market_stall",
+		PriceUnit:          "week",
+		RetailRentPrice:    "3500",
+		DepositAmount:      "7000",
+		AdvanceRentAmount:  "3500",
+		MinimumLeaseMonths: "3",
+		ServiceFeeMonthly:  "500",
+	}
+
+	req.normalize()
+
+	amount, unit := req.offerAmount("rent")
+	if amount != float64(3500) || unit != "week" {
+		t.Fatalf("weekly retail offer: amount=%v unit=%q", amount, unit)
+	}
+	if req.DepositAmount != "7000" || req.AdvanceRentAmount != "3500" || req.MinimumLeaseMonths != "3" || req.ServiceFeeMonthly != "500" {
+		t.Fatalf("retail entry costs or contract terms were lost: %#v", req)
+	}
+}
+
+func TestCreateListingBusinessAllowsCookingPrefersExplicitCategoryDetail(t *testing.T) {
+	tests := []struct {
+		name                 string
+		categoryDetails      map[string]any
+		allowedBusinessTypes []string
+		want                 bool
+	}{
+		{
+			name:                 "explicit yes without a food business type",
+			categoryDetails:      map[string]any{"cooking_allowed": "yes"},
+			allowedBusinessTypes: []string{"retail"},
+			want:                 true,
+		},
+		{
+			name:                 "explicit no overrides a food business type",
+			categoryDetails:      map[string]any{"cooking_allowed": "no"},
+			allowedBusinessTypes: []string{"retail", "food_service"},
+			want:                 false,
+		},
+		{
+			name:                 "explicit boolean false overrides a restaurant",
+			categoryDetails:      map[string]any{"cooking_allowed": false},
+			allowedBusinessTypes: []string{"restaurant"},
+			want:                 false,
+		},
+		{
+			name:                 "legacy payload falls back to business types",
+			categoryDetails:      map[string]any{},
+			allowedBusinessTypes: []string{"cafe"},
+			want:                 true,
+		},
+		{
+			name:                 "legacy non-food payload remains false",
+			categoryDetails:      nil,
+			allowedBusinessTypes: []string{"retail"},
+			want:                 false,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			req := createListingRequest{
+				CategoryDetails:      testCase.categoryDetails,
+				AllowedBusinessTypes: testCase.allowedBusinessTypes,
+			}
+			if got := req.businessAllowsCooking(); got != testCase.want {
+				t.Fatalf("businessAllowsCooking() = %v, want %v", got, testCase.want)
+			}
+		})
 	}
 }
 
@@ -92,10 +186,72 @@ func TestCreateListingValidateAcceptsOverlappingRetailSpaceTypes(t *testing.T) {
 		ProvinceName:      "Bangkok",
 		Latitude:          "13.7563",
 		Longitude:         "100.5018",
+		EventName:         "ABC Market",
+		EventVenueName:    "Example Hall",
+		EventRounds: []listingEventRoundInput{
+			{StartsOn: "2026-09-11", EndsOn: "2026-09-14"},
+			{StartsOn: "2026-09-20", EndsOn: "2026-09-25"},
+		},
 	}
 
 	if err := req.validate(); err != nil {
 		t.Fatalf("unexpected validation error: %v", err)
+	}
+}
+
+func TestCreateListingValidateRejectsInvalidEventRounds(t *testing.T) {
+	req := createListingRequest{
+		PropertyGroupCode: "commercial",
+		PropertyTypeCode:  "retail_space",
+		ListingScope:      "space_slot",
+		UsageType:         "business",
+		ListingType:       "rent",
+		Title:             "Event booth",
+		Description:       validListingDescription,
+		OfferTypes:        []string{"rent"},
+		PriceOnRequest:    true,
+		SpaceTypeCode:     "event_booth",
+		SpaceTypeCodes:    []string{"event_booth"},
+		ProvinceName:      "Bangkok",
+		Latitude:          "13.7563",
+		Longitude:         "100.5018",
+		EventName:         "ABC Market",
+		EventVenueName:    "Example Hall",
+		EventRounds: []listingEventRoundInput{
+			{StartsOn: "2026-09-14", EndsOn: "2026-09-11"},
+		},
+	}
+
+	if err := req.validate(); err == nil {
+		t.Fatal("expected an event round ending before its start to be rejected")
+	}
+
+	req.EventRounds = []listingEventRoundInput{
+		{StartsOn: "2026-09-11", EndsOn: "2026-09-14"},
+		{StartsOn: "2026-09-11", EndsOn: "2026-09-14"},
+	}
+	if err := req.validate(); err == nil {
+		t.Fatal("expected duplicate event rounds to be rejected")
+	}
+}
+
+func TestCreateListingNormalizeClearsEventDataOutsideTemporarySpaces(t *testing.T) {
+	req := createListingRequest{
+		PropertyTypeCode:     "retail_space",
+		SpaceTypeCode:        "market_stall",
+		EventName:            "Stale event",
+		EventVenueName:       "Stale venue",
+		EventVenueFloorLabel: "Zone A",
+		EventFloorPlanURL:    "https://example.com/plan.png",
+		EventRounds: []listingEventRoundInput{
+			{StartsOn: "2026-09-11", EndsOn: "2026-09-14"},
+		},
+	}
+
+	req.normalize()
+
+	if req.EventName != "" || req.EventVenueName != "" || req.EventVenueFloorLabel != "" || req.EventFloorPlanURL != "" || len(req.EventRounds) != 0 {
+		t.Fatalf("non-event listing retained event data: %#v", req)
 	}
 }
 

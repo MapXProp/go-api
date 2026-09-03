@@ -605,6 +605,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			"l.is_active = true",
 			"l.listing_status = 'active'",
 			"l.moderation_status = 'approved'",
+			"(l.expires_at IS NULL OR l.expires_at > now())",
 		}
 		args := []any{}
 		arg := func(value any) string { args = append(args, value); return fmt.Sprintf("$%d", len(args)) }
@@ -753,7 +754,9 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		LEFT JOIN LATERAL (
 			SELECT count(*)::integer AS round_count, min(starts_on) AS starts_on, max(ends_on) AS ends_on
 			FROM public.listing_event_rounds
-			WHERE listing_id = l.id AND availability_status IN ('open','limited','waitlist')
+			WHERE listing_id = l.id
+			  AND availability_status IN ('open','limited','waitlist')
+			  AND ends_on >= CURRENT_DATE
 		) er ON true
 		LEFT JOIN LATERAL (
 			SELECT

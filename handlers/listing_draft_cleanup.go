@@ -105,6 +105,9 @@ func loadProtectedListingMediaURLs(ctx context.Context, db *sql.DB, now time.Tim
 		UNION
 		SELECT original_url FROM public.listing_media
 		WHERE original_url LIKE '/apix/listing-media/files/%'
+		UNION
+		SELECT floor_plan_url FROM public.listing_event_details
+		WHERE floor_plan_url LIKE '/apix/listing-media/files/%'
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("load published listing media: %w", err)

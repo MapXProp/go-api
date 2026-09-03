@@ -22,79 +22,92 @@ const (
 )
 
 type createListingRequest struct {
-	SubmissionKey           string              `json:"submission_key"`
-	EditingPublicListingID  string              `json:"editing_public_listing_id"`
-	ReplaceMedia            bool                `json:"replace_media"`
-	DiscoveryChannelCode    string              `json:"discovery_channel_code"`
-	PropertyGroupCode       string              `json:"property_group_code"`
-	PropertyTypeCode        string              `json:"property_type_code"`
-	AccommodationModel      string              `json:"accommodation_model"`
-	ListingScope            string              `json:"listing_scope"`
-	UseCaseCodes            []string            `json:"use_case_codes"`
-	OfferTypes              []string            `json:"offer_types"`
-	UsageType               string              `json:"usage_type"`
-	ListingType             string              `json:"listing_type"`
-	Title                   string              `json:"title"`
-	Description             string              `json:"description"`
-	CustomProjectName       string              `json:"custom_project_name"`
-	CustomUnitNumber        string              `json:"custom_unit_number"`
-	SalePrice               string              `json:"sale_price"`
-	RentPriceMonthly        string              `json:"rent_price_monthly"`
-	RentPriceDaily          string              `json:"rent_price_daily"`
-	PriceNegotiable         bool                `json:"price_negotiable"`
-	UsableAreaSqm           string              `json:"usable_area_sqm"`
-	LandAreaSqm             string              `json:"land_area_sqm"`
-	BedroomCount            string              `json:"bedroom_count"`
-	BathroomCount           string              `json:"bathroom_count"`
-	ParkingCount            string              `json:"parking_count"`
-	MaxOccupants            string              `json:"max_occupants"`
-	FloorNo                 string              `json:"floor_no"`
-	TotalFloors             string              `json:"total_floors"`
-	FurnishingStatus        string              `json:"furnishing_status"`
-	PropertyCondition       string              `json:"property_condition"`
-	OccupancyStatus         string              `json:"occupancy_status"`
-	MinimumLeaseMonths      string              `json:"minimum_lease_months"`
-	PetAllowed              bool                `json:"pet_allowed"`
-	PetPolicyCode           string              `json:"pet_policy_code"`
-	ContactName             string              `json:"contact_name"`
-	ContactPhone            string              `json:"contact_phone"`
-	ContactPhoneSecondary   string              `json:"contact_phone_secondary"`
-	ContactEmail            string              `json:"contact_email"`
-	LineID                  string              `json:"line_id"`
-	InstagramHandle         string              `json:"instagram_handle"`
-	ContactRoleCode         string              `json:"contact_role_code"`
-	ContactAuthorityCode    string              `json:"contact_authority_code"`
-	ContactOrganizationName string              `json:"contact_organization_name"`
-	ContactOrganizationNo   string              `json:"contact_organization_registration_no"`
-	AddressLine1            string              `json:"address_line1"`
-	AddressLine2            string              `json:"address_line2"`
-	Road                    string              `json:"road"`
-	ProvinceName            string              `json:"province_name"`
-	DistrictName            string              `json:"district_name"`
-	SubdistrictName         string              `json:"subdistrict_name"`
-	PostalCode              string              `json:"postal_code"`
-	Latitude                string              `json:"latitude"`
-	Longitude               string              `json:"longitude"`
-	BusinessTypeCode        string              `json:"business_type_code"`
-	SpaceTypeCode           string              `json:"space_type_code"`
-	SpaceTypeCodes          []string            `json:"space_type_codes"`
-	TargetTenantType        string              `json:"target_tenant_type"`
-	PriceUnit               string              `json:"price_unit"`
-	KeyMoneyAmount          string              `json:"key_money_amount"`
-	ServiceFeeMonthly       string              `json:"service_fee_monthly"`
-	UtilitiesIncluded       bool                `json:"utilities_included"`
-	IsSublease              bool                `json:"is_sublease"`
-	OwnerPermissionRequired bool                `json:"owner_permission_required"`
-	AllowedBusinessTypes    []string            `json:"allowed_business_types"`
-	Amenities               []string            `json:"amenities"`
-	EventBookingPrice       string              `json:"event_booking_price"`
-	TemporarySpacePrice     string              `json:"temporary_space_price"`
-	TemporarySpaceDays      string              `json:"temporary_space_duration_days"`
-	PriceOnRequest          bool                `json:"price_on_request"`
-	Currency                string              `json:"currency"`
-	CategoryDetails         map[string]any      `json:"category_details"`
-	MediaURLs               []string            `json:"media_urls"`
-	MediaItems              []listingMediaInput `json:"media_items"`
+	SubmissionKey           string                   `json:"submission_key"`
+	EditingPublicListingID  string                   `json:"editing_public_listing_id"`
+	ReplaceMedia            bool                     `json:"replace_media"`
+	DiscoveryChannelCode    string                   `json:"discovery_channel_code"`
+	PropertyGroupCode       string                   `json:"property_group_code"`
+	PropertyTypeCode        string                   `json:"property_type_code"`
+	AccommodationModel      string                   `json:"accommodation_model"`
+	ListingScope            string                   `json:"listing_scope"`
+	UseCaseCodes            []string                 `json:"use_case_codes"`
+	OfferTypes              []string                 `json:"offer_types"`
+	UsageType               string                   `json:"usage_type"`
+	ListingType             string                   `json:"listing_type"`
+	Title                   string                   `json:"title"`
+	Description             string                   `json:"description"`
+	CustomProjectName       string                   `json:"custom_project_name"`
+	CustomUnitNumber        string                   `json:"custom_unit_number"`
+	SalePrice               string                   `json:"sale_price"`
+	RentPriceMonthly        string                   `json:"rent_price_monthly"`
+	RentPriceDaily          string                   `json:"rent_price_daily"`
+	PriceNegotiable         bool                     `json:"price_negotiable"`
+	UsableAreaSqm           string                   `json:"usable_area_sqm"`
+	LandAreaSqm             string                   `json:"land_area_sqm"`
+	BedroomCount            string                   `json:"bedroom_count"`
+	BathroomCount           string                   `json:"bathroom_count"`
+	ParkingCount            string                   `json:"parking_count"`
+	MaxOccupants            string                   `json:"max_occupants"`
+	FloorNo                 string                   `json:"floor_no"`
+	TotalFloors             string                   `json:"total_floors"`
+	FurnishingStatus        string                   `json:"furnishing_status"`
+	PropertyCondition       string                   `json:"property_condition"`
+	OccupancyStatus         string                   `json:"occupancy_status"`
+	MinimumLeaseMonths      string                   `json:"minimum_lease_months"`
+	PetAllowed              bool                     `json:"pet_allowed"`
+	PetPolicyCode           string                   `json:"pet_policy_code"`
+	ContactName             string                   `json:"contact_name"`
+	ContactPhone            string                   `json:"contact_phone"`
+	ContactPhoneSecondary   string                   `json:"contact_phone_secondary"`
+	ContactEmail            string                   `json:"contact_email"`
+	LineID                  string                   `json:"line_id"`
+	InstagramHandle         string                   `json:"instagram_handle"`
+	ContactRoleCode         string                   `json:"contact_role_code"`
+	ContactAuthorityCode    string                   `json:"contact_authority_code"`
+	ContactOrganizationName string                   `json:"contact_organization_name"`
+	ContactOrganizationNo   string                   `json:"contact_organization_registration_no"`
+	AddressLine1            string                   `json:"address_line1"`
+	AddressLine2            string                   `json:"address_line2"`
+	Road                    string                   `json:"road"`
+	ProvinceName            string                   `json:"province_name"`
+	DistrictName            string                   `json:"district_name"`
+	SubdistrictName         string                   `json:"subdistrict_name"`
+	PostalCode              string                   `json:"postal_code"`
+	Latitude                string                   `json:"latitude"`
+	Longitude               string                   `json:"longitude"`
+	BusinessTypeCode        string                   `json:"business_type_code"`
+	SpaceTypeCode           string                   `json:"space_type_code"`
+	SpaceTypeCodes          []string                 `json:"space_type_codes"`
+	TargetTenantType        string                   `json:"target_tenant_type"`
+	PriceUnit               string                   `json:"price_unit"`
+	KeyMoneyAmount          string                   `json:"key_money_amount"`
+	ServiceFeeMonthly       string                   `json:"service_fee_monthly"`
+	UtilitiesIncluded       bool                     `json:"utilities_included"`
+	IsSublease              bool                     `json:"is_sublease"`
+	OwnerPermissionRequired bool                     `json:"owner_permission_required"`
+	AllowedBusinessTypes    []string                 `json:"allowed_business_types"`
+	Amenities               []string                 `json:"amenities"`
+	EventBookingPrice       string                   `json:"event_booking_price"`
+	TemporarySpacePrice     string                   `json:"temporary_space_price"`
+	TemporarySpaceDays      string                   `json:"temporary_space_duration_days"`
+	RetailRentPrice         string                   `json:"retail_rent_price"`
+	DepositAmount           string                   `json:"deposit_amount"`
+	AdvanceRentAmount       string                   `json:"advance_rent_amount"`
+	PriceOnRequest          bool                     `json:"price_on_request"`
+	Currency                string                   `json:"currency"`
+	EventName               string                   `json:"event_name"`
+	EventVenueName          string                   `json:"event_venue_name"`
+	EventVenueFloorLabel    string                   `json:"event_venue_floor_label"`
+	EventFloorPlanURL       string                   `json:"event_floor_plan_url"`
+	EventRounds             []listingEventRoundInput `json:"event_rounds"`
+	CategoryDetails         map[string]any           `json:"category_details"`
+	MediaURLs               []string                 `json:"media_urls"`
+	MediaItems              []listingMediaInput      `json:"media_items"`
+}
+
+type listingEventRoundInput struct {
+	StartsOn string `json:"starts_on"`
+	EndsOn   string `json:"ends_on"`
 }
 
 type listingMediaInput struct {
@@ -138,6 +151,9 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			if err := req.validateMediaOwnership(claims.UID); err != nil {
 				return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 			}
+		}
+		if err := req.validateFloorPlanOwnership(claims.UID); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
 
 		tx, err := db.BeginTx(ctx, nil)
@@ -359,6 +375,8 @@ func CreateListing(db *sql.DB) fiber.Handler {
 		}
 
 		cleanupQueries := []string{
+			`DELETE FROM public.listing_event_rounds WHERE listing_id = $1`,
+			`DELETE FROM public.listing_event_details WHERE listing_id = $1`,
 			`DELETE FROM public.listing_category_details WHERE listing_id = $1`,
 			`DELETE FROM public.listing_contact_profiles WHERE listing_id = $1`,
 			`DELETE FROM public.listing_space_types WHERE listing_id = $1`,
@@ -496,19 +514,26 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			amount, priceUnit := req.offerAmount(offerType)
 			var minimumContractMonths any
 			var serviceFeeMonthly any
-			if inSet(offerType, "rent", "sublease") && !req.isTemporarySpace() {
+			var depositAmount any
+			var advanceAmount any
+			if inSet(offerType, "rent", "sublease") {
 				minimumContractMonths = listingNullInt(req.MinimumLeaseMonths)
 				serviceFeeMonthly = listingNullFloat(req.ServiceFeeMonthly)
+				depositAmount = listingNullFloat(req.DepositAmount)
+				advanceAmount = listingNullFloat(req.AdvanceRentAmount)
 			}
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO public.listing_offers (
 					listing_id, offer_type, amount, price_unit, currency_code,
-					minimum_contract_months, service_fee_monthly, is_negotiable
-				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+					deposit_amount, advance_amount, minimum_contract_months,
+					service_fee_monthly, is_negotiable
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 				ON CONFLICT (listing_id, offer_type) DO UPDATE SET
 					amount = EXCLUDED.amount,
 					price_unit = EXCLUDED.price_unit,
 					currency_code = EXCLUDED.currency_code,
+					deposit_amount = EXCLUDED.deposit_amount,
+					advance_amount = EXCLUDED.advance_amount,
 					minimum_contract_months = EXCLUDED.minimum_contract_months,
 					service_fee_monthly = EXCLUDED.service_fee_monthly,
 					is_negotiable = EXCLUDED.is_negotiable,
@@ -519,6 +544,8 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				amount,
 				priceUnit,
 				req.Currency,
+				depositAmount,
+				advanceAmount,
 				minimumContractMonths,
 				serviceFeeMonthly,
 				req.PriceNegotiable,
@@ -576,12 +603,85 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				listingNullFloat(req.KeyMoneyAmount),
 				listingNullFloat(req.ServiceFeeMonthly),
 				listingNullInt(req.MinimumLeaseMonths),
-				nil,
-				nil,
+				listingNullFloat(req.DepositAmount),
+				listingNullFloat(req.AdvanceRentAmount),
 			); err != nil {
 				fmt.Println("Create Listing Business Detail Error:", err)
 				return c.Status(500).JSON(fiber.Map{"error": "cannot create business details"})
 			}
+		}
+
+		if req.isTemporarySpace() {
+			organizerName := req.ContactOrganizationName
+			if organizerName == "" {
+				organizerName = req.ContactName
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO public.listing_event_details (
+					listing_id, event_name, organizer_name, venue_name,
+					venue_floor_label, floor_plan_url, price_on_request
+				) VALUES ($1, $2, $3, $4, $5, $6, $7)
+			`,
+				listingID,
+				req.EventName,
+				listingNullString(organizerName),
+				req.EventVenueName,
+				listingNullString(req.EventVenueFloorLabel),
+				listingNullString(req.EventFloorPlanURL),
+				req.PriceOnRequest,
+			); err != nil {
+				fmt.Println("Create Listing Event Detail Error:", err)
+				return c.Status(500).JSON(fiber.Map{"error": "cannot create event details"})
+			}
+
+			var roundPrice any
+			roundPriceUnit := "event_round"
+			if !req.PriceOnRequest && (inSet("rent", req.OfferTypes...) || inSet("sublease", req.OfferTypes...)) {
+				roundPrice = listingNullFloat(req.RetailRentPrice)
+				roundPriceUnit = req.PriceUnit
+			}
+			for index, round := range req.EventRounds {
+				if _, err := tx.ExecContext(ctx, `
+					INSERT INTO public.listing_event_rounds (
+						listing_id, round_label, starts_on, ends_on,
+						availability_status, price_amount, price_unit, sort_order
+					) VALUES (
+						$1, $2, $3::date, $4::date,
+						CASE WHEN $4::date < CURRENT_DATE THEN 'closed' ELSE 'open' END,
+						$5, $6, $7
+					)
+				`,
+					listingID,
+					fmt.Sprintf("รอบที่ %d", index+1),
+					round.StartsOn,
+					round.EndsOn,
+					roundPrice,
+					roundPriceUnit,
+					(index+1)*10,
+				); err != nil {
+					fmt.Println("Create Listing Event Round Error:", err)
+					return c.Status(500).JSON(fiber.Map{"error": "cannot create event rounds"})
+				}
+			}
+
+			latestEnd := req.EventRounds[len(req.EventRounds)-1].EndsOn
+			for _, round := range req.EventRounds[:len(req.EventRounds)-1] {
+				if round.EndsOn > latestEnd {
+					latestEnd = round.EndsOn
+				}
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE public.listings
+				SET expires_at = (($2::date + 1)::timestamp AT TIME ZONE 'Asia/Bangkok'),
+					updated_at = now()
+				WHERE id = $1
+			`, listingID, latestEnd); err != nil {
+				fmt.Println("Create Listing Event Expiry Error:", err)
+				return c.Status(500).JSON(fiber.Map{"error": "cannot set event expiry"})
+			}
+		} else if _, err := tx.ExecContext(ctx, `UPDATE public.listings SET expires_at = NULL WHERE id = $1`, listingID); err != nil {
+			fmt.Println("Clear Listing Event Expiry Error:", err)
+			return c.Status(500).JSON(fiber.Map{"error": "cannot clear event expiry"})
 		}
 
 		if err := verifyCreatedListing(ctx, tx, listingID, req, replaceMedia); err != nil {
@@ -629,18 +729,20 @@ func CreateListing(db *sql.DB) fiber.Handler {
 
 func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req createListingRequest, verifyMedia bool) error {
 	var (
-		secondaryPhone string
-		instagram      string
-		province       string
-		district       string
-		subdistrict    string
-		mediaCount     int
-		spaceTypeCount int
-		amenityCount   int
-		currencyCount  int
-		accommodation  string
-		hasLatitude    bool
-		hasLongitude   bool
+		secondaryPhone   string
+		instagram        string
+		province         string
+		district         string
+		subdistrict      string
+		mediaCount       int
+		spaceTypeCount   int
+		amenityCount     int
+		currencyCount    int
+		eventDetailCount int
+		eventRoundCount  int
+		accommodation    string
+		hasLatitude      bool
+		hasLongitude     bool
 	)
 	err := tx.QueryRowContext(ctx, `
 		SELECT
@@ -655,7 +757,9 @@ func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req 
 			(SELECT count(*) FROM public.listing_media WHERE listing_id = $1 AND is_active = true),
 			(SELECT count(*) FROM public.listing_space_types WHERE listing_id = $1),
 			(SELECT count(*) FROM public.listing_amenities WHERE listing_id = $1),
-			(SELECT count(*) FROM public.listing_offers WHERE listing_id = $1 AND currency_code = $2)
+			(SELECT count(*) FROM public.listing_offers WHERE listing_id = $1 AND currency_code = $2),
+			(SELECT count(*) FROM public.listing_event_details WHERE listing_id = $1),
+			(SELECT count(*) FROM public.listing_event_rounds WHERE listing_id = $1)
 		FROM public.listings
 		WHERE id = $1
 	`, listingID, req.Currency).Scan(
@@ -671,6 +775,8 @@ func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req 
 		&spaceTypeCount,
 		&amenityCount,
 		&currencyCount,
+		&eventDetailCount,
+		&eventRoundCount,
 	)
 	if err != nil {
 		return err
@@ -695,6 +801,13 @@ func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req 
 	}
 	if currencyCount != len(req.OfferTypes) {
 		return fmt.Errorf("offer currency count mismatch: got %d want %d", currencyCount, len(req.OfferTypes))
+	}
+	expectedEventDetails := 0
+	if req.isTemporarySpace() {
+		expectedEventDetails = 1
+	}
+	if eventDetailCount != expectedEventDetails || eventRoundCount != len(req.EventRounds) {
+		return fmt.Errorf("event data count mismatch: details=%d rounds=%d", eventDetailCount, eventRoundCount)
 	}
 	if hasLatitude != (strings.TrimSpace(req.Latitude) != "") || hasLongitude != (strings.TrimSpace(req.Longitude) != "") {
 		return fmt.Errorf("listing coordinates were not persisted")
@@ -762,14 +875,30 @@ func (req *createListingRequest) normalize() {
 	}
 	req.BusinessTypeCode = cleanCode(req.BusinessTypeCode, "")
 	req.PriceUnit = cleanCode(req.PriceUnit, "")
-	if req.isTemporarySpace() {
+	if req.isRetailSpace() {
 		if inSet("rent", req.OfferTypes...) || inSet("sublease", req.OfferTypes...) {
-			req.PriceUnit = "event_period"
+			if req.RetailRentPrice == "" {
+				if req.isTemporarySpace() {
+					req.RetailRentPrice = req.TemporarySpacePrice
+				} else {
+					req.RetailRentPrice = req.RentPriceMonthly
+				}
+			}
+			if !inSet(req.PriceUnit, "day", "week", "month", "event_period") {
+				if req.isTemporarySpace() {
+					req.PriceUnit = "event_period"
+				} else {
+					req.PriceUnit = "month"
+				}
+			}
+			if req.PriceUnit == "event_period" && !req.isTemporarySpace() {
+				req.PriceUnit = "month"
+			}
 		}
 		req.RentPriceMonthly = ""
 		req.RentPriceDaily = ""
-		req.MinimumLeaseMonths = ""
-		req.ServiceFeeMonthly = ""
+		req.TemporarySpacePrice = ""
+		req.TemporarySpaceDays = ""
 	}
 	req.Title = strings.TrimSpace(req.Title)
 	req.Description = strings.TrimSpace(req.Description)
@@ -791,6 +920,21 @@ func (req *createListingRequest) normalize() {
 	req.ContactAuthorityCode = cleanCode(req.ContactAuthorityCode, "")
 	req.ContactOrganizationName = strings.TrimSpace(req.ContactOrganizationName)
 	req.ContactOrganizationNo = strings.TrimSpace(req.ContactOrganizationNo)
+	req.EventName = strings.TrimSpace(req.EventName)
+	req.EventVenueName = strings.TrimSpace(req.EventVenueName)
+	req.EventVenueFloorLabel = strings.TrimSpace(req.EventVenueFloorLabel)
+	req.EventFloorPlanURL = strings.TrimSpace(req.EventFloorPlanURL)
+	for index := range req.EventRounds {
+		req.EventRounds[index].StartsOn = strings.TrimSpace(req.EventRounds[index].StartsOn)
+		req.EventRounds[index].EndsOn = strings.TrimSpace(req.EventRounds[index].EndsOn)
+	}
+	if !req.isTemporarySpace() {
+		req.EventName = ""
+		req.EventVenueName = ""
+		req.EventVenueFloorLabel = ""
+		req.EventFloorPlanURL = ""
+		req.EventRounds = nil
+	}
 	if req.ContactRoleCode == "owner" {
 		req.ContactAuthorityCode = "self"
 	}
@@ -810,7 +954,13 @@ func (req *createListingRequest) normalize() {
 		req.EventBookingPrice = ""
 		req.TemporarySpacePrice = ""
 		req.TemporarySpaceDays = ""
+		req.RetailRentPrice = ""
+		req.DepositAmount = ""
+		req.AdvanceRentAmount = ""
 		req.ServiceFeeMonthly = ""
+		if req.isRetailSpace() {
+			req.MinimumLeaseMonths = ""
+		}
 		req.PriceNegotiable = false
 	}
 	req.MediaURLs = cleanListingMediaURLs(req.MediaURLs)
@@ -834,7 +984,11 @@ func (req *createListingRequest) normalize() {
 		delete(req.CategoryDetails, "temporary_space_pricing_mode")
 	}
 	if req.isTemporarySpace() && !req.PriceOnRequest && (inSet("rent", req.OfferTypes...) || inSet("sublease", req.OfferTypes...)) {
-		req.CategoryDetails["temporary_space_duration_days"] = req.TemporarySpaceDays
+		if req.TemporarySpaceDays != "" {
+			req.CategoryDetails["temporary_space_duration_days"] = req.TemporarySpaceDays
+		} else {
+			delete(req.CategoryDetails, "temporary_space_duration_days")
+		}
 	} else {
 		delete(req.CategoryDetails, "temporary_space_duration_days")
 	}
@@ -911,12 +1065,15 @@ func (req createListingRequest) validate() error {
 			return fmt.Errorf("invalid offer type")
 		}
 	}
-	if req.isTemporarySpace() && !req.PriceOnRequest && (inSet("rent", req.OfferTypes...) || inSet("sublease", req.OfferTypes...)) {
-		if !validPositiveListingFloat(req.TemporarySpacePrice) {
-			return fmt.Errorf("temporary space rental price must be greater than zero")
+	if req.isRetailSpace() && !req.PriceOnRequest && (inSet("rent", req.OfferTypes...) || inSet("sublease", req.OfferTypes...)) {
+		if !validPositiveListingFloat(req.RetailRentPrice) {
+			return fmt.Errorf("retail space rental price must be greater than zero")
 		}
-		if !validPositiveListingInt(req.TemporarySpaceDays) {
-			return fmt.Errorf("temporary space rental duration must be a positive whole number of days")
+		if req.DepositAmount != "" && !validPositiveListingFloat(req.DepositAmount) {
+			return fmt.Errorf("retail space deposit must be greater than zero")
+		}
+		if req.AdvanceRentAmount != "" && !validPositiveListingFloat(req.AdvanceRentAmount) {
+			return fmt.Errorf("retail space advance rent must be greater than zero")
 		}
 	}
 	if req.Currency != "" && !validListingCurrency(req.Currency) {
@@ -960,6 +1117,42 @@ func (req createListingRequest) validate() error {
 	}
 	if len(req.SpaceTypeCodes) > 0 && req.PropertyTypeCode != "retail_space" {
 		return fmt.Errorf("space types are only valid for retail space listings")
+	}
+	if req.isTemporarySpace() {
+		if req.EventName == "" {
+			return fmt.Errorf("event name is required")
+		}
+		if len([]rune(req.EventName)) > 200 {
+			return fmt.Errorf("event name is too long")
+		}
+		if req.EventVenueName == "" {
+			return fmt.Errorf("event venue name is required")
+		}
+		if len([]rune(req.EventVenueName)) > 200 || len([]rune(req.EventVenueFloorLabel)) > 120 {
+			return fmt.Errorf("event venue is too long")
+		}
+		if len(req.EventFloorPlanURL) > 2048 {
+			return fmt.Errorf("event floor plan URL is too long")
+		}
+		if len(req.EventRounds) == 0 || len(req.EventRounds) > 12 {
+			return fmt.Errorf("an event must have between one and twelve rounds")
+		}
+		seenRounds := make(map[string]bool, len(req.EventRounds))
+		for _, round := range req.EventRounds {
+			startsOn, startErr := time.Parse("2006-01-02", round.StartsOn)
+			endsOn, endErr := time.Parse("2006-01-02", round.EndsOn)
+			if startErr != nil || endErr != nil {
+				return fmt.Errorf("event round dates are invalid")
+			}
+			if endsOn.Before(startsOn) {
+				return fmt.Errorf("event round end date cannot be before its start date")
+			}
+			roundKey := round.StartsOn + ":" + round.EndsOn
+			if seenRounds[roundKey] {
+				return fmt.Errorf("event rounds cannot use duplicate date ranges")
+			}
+			seenRounds[roundKey] = true
+		}
 	}
 	if req.ProvinceName == "" {
 		return fmt.Errorf("province is required")
@@ -1111,7 +1304,41 @@ func (req createListingRequest) validateMediaOwnership(userID int64) error {
 	return nil
 }
 
+func (req createListingRequest) validateFloorPlanOwnership(userID int64) error {
+	if req.EventFloorPlanURL == "" {
+		return nil
+	}
+	if strings.HasPrefix(req.EventFloorPlanURL, "http://") || strings.HasPrefix(req.EventFloorPlanURL, "https://") {
+		return nil
+	}
+
+	ownedPrefix := fmt.Sprintf("/apix/listing-media/files/%d/", userID)
+	if !strings.HasPrefix(req.EventFloorPlanURL, ownedPrefix) {
+		return fmt.Errorf("event floor plan must belong to the authenticated user")
+	}
+	filename := strings.TrimPrefix(req.EventFloorPlanURL, ownedPrefix)
+	if filename == "" || filepath.Base(filename) != filename {
+		return fmt.Errorf("invalid event floor plan URL")
+	}
+	if _, err := os.Stat(filepath.Join(listingMediaRoot(), strconv.FormatInt(userID, 10), filename)); err != nil {
+		return fmt.Errorf("uploaded event floor plan was not found")
+	}
+	if !inSet(strings.ToLower(filepath.Ext(filename)), ".jpg", ".png", ".webp") {
+		return fmt.Errorf("event floor plan must be a JPG, PNG, or WebP image")
+	}
+	return nil
+}
+
 func (req createListingRequest) businessAllowsCooking() bool {
+	if value, exists := req.CategoryDetails["cooking_allowed"]; exists {
+		if cookingAllowed, valid := listingBooleanValue(value); valid {
+			return cookingAllowed
+		}
+	}
+
+	// Older clients did not submit cooking_allowed. Preserve their previous
+	// behaviour by inferring it from the selected business types only when the
+	// explicit field is absent or cannot be interpreted.
 	for _, item := range req.AllowedBusinessTypes {
 		if item == "restaurant" || item == "cafe" || item == "food" || item == "food_service" {
 			return true
@@ -1120,8 +1347,28 @@ func (req createListingRequest) businessAllowsCooking() bool {
 	return false
 }
 
+func listingBooleanValue(value any) (bool, bool) {
+	switch typed := value.(type) {
+	case bool:
+		return typed, true
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "yes", "true", "1", "allowed":
+			return true, true
+		case "no", "false", "0", "not_allowed", "not allowed":
+			return false, true
+		}
+	}
+
+	return false, false
+}
+
 func (req createListingRequest) isTemporarySpace() bool {
 	return req.SpaceTypeCode == "event_booth" || inSet("event_booth", req.SpaceTypeCodes...)
+}
+
+func (req createListingRequest) isRetailSpace() bool {
+	return req.PropertyTypeCode == "retail_space"
 }
 
 func (req createListingRequest) offerAmount(offerType string) (any, string) {
@@ -1129,8 +1376,8 @@ func (req createListingRequest) offerAmount(offerType string) (any, string) {
 	case "sale":
 		return listingNullFloat(req.SalePrice), "total"
 	case "rent", "sublease":
-		if req.isTemporarySpace() {
-			return listingNullFloat(req.TemporarySpacePrice), "event_period"
+		if req.isRetailSpace() {
+			return listingNullFloat(req.RetailRentPrice), req.PriceUnit
 		}
 		return listingNullFloat(req.RentPriceMonthly), "month"
 	case "business_transfer":

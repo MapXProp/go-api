@@ -301,6 +301,34 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 			assertIntegrationListingImmediatelyPublished(t, db, listingID)
 			assertIntegrationListingDetailReadable(t, app, db, listingID, userID, category, payload)
 			assertIntegrationListingEditDraftReadable(t, app, db, accessToken, listingID, payload)
+			if inSet("event_booth", category.spaceTypes...) {
+				var publicListingID string
+				if err := db.QueryRow(`SELECT public_listing_id::text FROM public.listings WHERE id = $1`, listingID).Scan(&publicListingID); err != nil {
+					t.Fatal(err)
+				}
+				fixedPricePayload := payload
+				fixedPricePayload.EditingPublicListingID = publicListingID
+				fixedPricePayload.SubmissionKey = uuid.NewString()
+				fixedPricePayload.PriceOnRequest = false
+				fixedPricePayload.PriceNegotiable = false
+				fixedPricePayload.RentPriceMonthly = ""
+				fixedPricePayload.ServiceFeeMonthly = "750"
+				fixedPricePayload.MinimumLeaseMonths = "3"
+				fixedPricePayload.DepositAmount = "10000"
+				fixedPricePayload.AdvanceRentAmount = "5000"
+				fixedPricePayload.PriceUnit = "event_period"
+				fixedPricePayload.RetailRentPrice = "5000"
+				fixedPricePayload.TemporarySpacePrice = ""
+				fixedPricePayload.TemporarySpaceDays = ""
+				fixedPriceListingID := createIntegrationListing(t, app, accessToken, fixedPricePayload)
+				if fixedPriceListingID != listingID {
+					t.Fatalf("temporary-space pricing edit created a duplicate listing: first=%d edit=%d", listingID, fixedPriceListingID)
+				}
+				assertIntegrationListingPersisted(t, db, listingID, userID, category, fixedPricePayload)
+				assertIntegrationListingImmediatelyPublished(t, db, listingID)
+				assertIntegrationListingDetailReadable(t, app, db, listingID, userID, category, fixedPricePayload)
+				assertIntegrationListingEditDraftReadable(t, app, db, accessToken, listingID, fixedPricePayload)
+			}
 			if index == 0 {
 				softDeleteListingID = listingID
 				softDeleteListingPayload = payload
@@ -750,6 +778,29 @@ func assertIntegrationListingEditDraftReadable(
 	assertDraftText("contactRoleCode", payload.ContactRoleCode)
 	assertDraftText("contactAuthorityCode", payload.ContactAuthorityCode)
 	assertDraftText("integrationCategory", payload.PropertyTypeCode)
+	if payload.PropertyTypeCode == "retail_space" && !payload.PriceOnRequest && (inSet("rent", payload.OfferTypes...) || inSet("sublease", payload.OfferTypes...)) {
+		expectedRetailPrice := payload.RetailRentPrice
+		if expectedRetailPrice == "" {
+			expectedRetailPrice = payload.RentPriceMonthly
+			if inSet("event_booth", payload.SpaceTypeCodes...) {
+				expectedRetailPrice = payload.TemporarySpacePrice
+			}
+		}
+		assertDraftText("retailRentPrice", expectedRetailPrice)
+		assertDraftText("retailPriceUnit", payload.PriceUnit)
+		assertDraftText("depositAmount", payload.DepositAmount)
+		assertDraftText("advanceRentAmount", payload.AdvanceRentAmount)
+		assertDraftText("minimumLeaseMonths", payload.MinimumLeaseMonths)
+		assertDraftText("serviceFeeMonthly", payload.ServiceFeeMonthly)
+	}
+	if inSet("event_booth", payload.SpaceTypeCodes...) {
+		assertDraftText("eventName", payload.EventName)
+		assertDraftText("eventVenueName", payload.EventVenueName)
+		assertDraftText("eventVenueFloor", payload.EventVenueFloorLabel)
+		assertDraftText("eventFloorPlanUrl", payload.EventFloorPlanURL)
+		assertDraftCount("eventRoundStarts[]", len(payload.EventRounds))
+		assertDraftCount("eventRoundEnds[]", len(payload.EventRounds))
+	}
 	assertDraftCount("listingPhotoUrls[]", 1)
 	assertDraftCount("listingVideoUrls[]", 1)
 	assertDraftCount("listingPanoramaUrls[]", 1)
@@ -986,6 +1037,14 @@ func integrationListingPayload(
 	}
 	if inSet("event_booth", category.spaceTypes...) {
 		payload.PriceOnRequest = true
+		payload.EventName = "MapXProp Integration Market"
+		payload.EventVenueName = "MapXProp Integration Hall"
+		payload.EventVenueFloorLabel = "Floor G"
+		payload.EventFloorPlanURL = imageURL
+		payload.EventRounds = []listingEventRoundInput{
+			{StartsOn: "2099-09-11", EndsOn: "2099-09-14"},
+			{StartsOn: "2099-09-20", EndsOn: "2099-09-25"},
+		}
 	}
 	if category.propertyType == "monthly_hotel" {
 		payload.RentPriceDaily = "2000"
@@ -1194,7 +1253,9 @@ func integrationCategoryDetails(category listingCategoryIntegrationCase) map[str
 			details["drainage_available"] = "yes"
 			details["three_phase_power"] = "yes"
 			details["signage_space"] = "yes"
-			details["cooking_allowed"] = "yes"
+			// Keep this deliberately different from the food_service business type
+			// so the integration test verifies that the explicit answer wins.
+			details["cooking_allowed"] = "no"
 			details["exhaust_duct_available"] = "yes"
 			details["grease_trap_available"] = "yes"
 			details["foot_traffic_notes"] = "Busy lunch and evening periods"
@@ -1611,6 +1672,10 @@ func assertIntegrationListingPersisted(
 					OR (offer_type IN ('rent', 'sublease') AND amount = 25000 AND price_unit = 'month' AND minimum_contract_months = 12 AND service_fee_monthly = 1500)
 					OR (offer_type = 'business_transfer' AND amount = 1250000 AND price_unit = 'total' AND minimum_contract_months IS NULL AND service_fee_monthly IS NULL)
 				))
+				OR ($9 = false AND is_negotiable = false AND
+					offer_type IN ('rent', 'sublease') AND amount = 5000 AND price_unit = 'event_period'
+					AND deposit_amount = 10000 AND advance_amount = 5000
+					AND minimum_contract_months = 3 AND service_fee_monthly = 750)
 				OR ($9 = true AND (
 					(offer_type = 'rent' AND amount IS NULL AND price_unit = 'month'
 						AND minimum_contract_months = 12 AND service_fee_monthly IS NULL AND is_negotiable = false)
@@ -1748,7 +1813,7 @@ func assertIntegrationListingPersisted(
 				t.Fatalf("home land area mismatch for %s: got=%v want=%v", category.propertyType, landArea, expectedLandArea)
 			}
 		}
-		assertStructuredCategoryDetailsPersisted(t, rawCategoryDetails, payload.CategoryDetails, category.propertyType)
+		assertStructuredCategoryDetailsPersisted(t, rawCategoryDetails, payload.CategoryDetails, category.propertyType, payload.PriceOnRequest, inSet("event_booth", category.spaceTypes...))
 	}
 	if category.discoveryChannel == "business" {
 		if category.propertyType == "land" {
@@ -1786,7 +1851,7 @@ func assertIntegrationListingPersisted(
 				t.Fatalf("business land area mismatch for %s: got=%v want=%v", category.propertyType, landArea, expectedLandArea)
 			}
 		}
-		assertStructuredCategoryDetailsPersisted(t, rawCategoryDetails, payload.CategoryDetails, category.propertyType)
+		assertStructuredCategoryDetailsPersisted(t, rawCategoryDetails, payload.CategoryDetails, category.propertyType, payload.PriceOnRequest, inSet("event_booth", category.spaceTypes...))
 	}
 	if images != 1 || videos != 1 || panoramas != 1 || primaryImages != 1 || videoRoles != 1 || panoramaRoles != 1 {
 		t.Fatalf("media mismatch: images=%d videos=%d panoramas=%d primary=%d videoRoles=%d panoramaRoles=%d", images, videos, panoramas, primaryImages, videoRoles, panoramaRoles)
@@ -1806,12 +1871,15 @@ func assertIntegrationListingPersisted(
 	}
 	assertIntegrationPricingPersisted(t, db, listingID, payload)
 	if expectedBusinessDetails == 1 {
-		var allowedBusinessTypeCount int
+		var (
+			allowedBusinessTypeCount int
+			cookingAllowed           bool
+		)
 		if err := db.QueryRow(`
-			SELECT COALESCE(cardinality(allowed_business_types), 0)
+			SELECT COALESCE(cardinality(allowed_business_types), 0), cooking_allowed
 			FROM public.listing_business_details
 			WHERE listing_id = $1
-		`, listingID).Scan(&allowedBusinessTypeCount); err != nil {
+		`, listingID).Scan(&allowedBusinessTypeCount, &cookingAllowed); err != nil {
 			t.Fatal(err)
 		}
 		if allowedBusinessTypeCount != len(payload.AllowedBusinessTypes) {
@@ -1820,7 +1888,17 @@ func assertIntegrationListingPersisted(
 		for _, businessType := range payload.AllowedBusinessTypes {
 			assertIntegrationRelation(t, db, `SELECT count(*) FROM public.listing_business_details WHERE listing_id = $1 AND $2 = ANY(allowed_business_types)`, listingID, businessType)
 		}
+		if submittedValue, exists := payload.CategoryDetails["cooking_allowed"]; exists {
+			expectedValue, valid := listingBooleanValue(submittedValue)
+			if !valid {
+				t.Fatalf("integration cooking_allowed value is invalid: %#v", submittedValue)
+			}
+			if cookingAllowed != expectedValue {
+				t.Fatalf("cooking allowed mismatch: got=%v want=%v submitted=%#v", cookingAllowed, expectedValue, submittedValue)
+			}
+		}
 	}
+	assertIntegrationEventPersisted(t, db, listingID, payload)
 
 	for _, useCase := range category.useCases {
 		assertIntegrationRelation(t, db, `SELECT count(*) FROM public.listing_use_cases WHERE listing_id = $1 AND use_case_code = $2`, listingID, useCase)
@@ -1848,23 +1926,128 @@ func assertIntegrationListingPersisted(
 	}
 }
 
-func assertStructuredCategoryDetailsPersisted(t *testing.T, rawDetails []byte, submitted map[string]any, propertyType string) {
+func assertIntegrationEventPersisted(t *testing.T, db *sql.DB, listingID int64, payload createListingRequest) {
+	t.Helper()
+	isEvent := inSet("event_booth", payload.SpaceTypeCodes...)
+	if !isEvent {
+		var count int
+		if err := db.QueryRow(`SELECT count(*) FROM public.listing_event_details WHERE listing_id = $1`, listingID).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("non-event listing %d retained event details", listingID)
+		}
+		return
+	}
+
+	organizerName := payload.ContactOrganizationName
+	if organizerName == "" {
+		organizerName = payload.ContactName
+	}
+	var eventDetailCount int
+	if err := db.QueryRow(`
+		SELECT count(*)
+		FROM public.listing_event_details
+		WHERE listing_id = $1
+		  AND event_name = $2
+		  AND COALESCE(organizer_name, '') = $3
+		  AND venue_name = $4
+		  AND COALESCE(venue_floor_label, '') = $5
+		  AND COALESCE(floor_plan_url, '') = $6
+		  AND price_on_request = $7
+	`, listingID, payload.EventName, organizerName, payload.EventVenueName, payload.EventVenueFloorLabel, payload.EventFloorPlanURL, payload.PriceOnRequest).Scan(&eventDetailCount); err != nil {
+		t.Fatal(err)
+	}
+	if eventDetailCount != 1 {
+		t.Fatalf("event details were not persisted exactly for listing %d", listingID)
+	}
+
+	var roundCount int
+	if err := db.QueryRow(`SELECT count(*) FROM public.listing_event_rounds WHERE listing_id = $1`, listingID).Scan(&roundCount); err != nil {
+		t.Fatal(err)
+	}
+	if roundCount != len(payload.EventRounds) {
+		t.Fatalf("event round count mismatch: got=%d want=%d", roundCount, len(payload.EventRounds))
+	}
+	for index, round := range payload.EventRounds {
+		var (
+			matching    int
+			priceAmount sql.NullFloat64
+			priceUnit   string
+		)
+		if err := db.QueryRow(`
+			SELECT count(*), max(price_amount), max(price_unit)
+			FROM public.listing_event_rounds
+			WHERE listing_id = $1
+			  AND round_label = $2
+			  AND starts_on = $3::date
+			  AND ends_on = $4::date
+			  AND availability_status = 'open'
+			  AND sort_order = $5
+		`, listingID, fmt.Sprintf("รอบที่ %d", index+1), round.StartsOn, round.EndsOn, (index+1)*10).Scan(&matching, &priceAmount, &priceUnit); err != nil {
+			t.Fatal(err)
+		}
+		if matching != 1 {
+			t.Fatalf("event round %d was not persisted exactly: %#v", index+1, round)
+		}
+		if payload.PriceOnRequest {
+			if priceAmount.Valid || priceUnit != "event_round" {
+				t.Fatalf("price-on-request round %d retained pricing: amount=%v unit=%q", index+1, priceAmount, priceUnit)
+			}
+		} else {
+			wantPrice, err := strconv.ParseFloat(payload.RetailRentPrice, 64)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !priceAmount.Valid || priceAmount.Float64 != wantPrice || priceUnit != payload.PriceUnit {
+				t.Fatalf("fixed-price round %d pricing mismatch: amount=%v unit=%q", index+1, priceAmount, priceUnit)
+			}
+		}
+	}
+
+	latestEnd := payload.EventRounds[0].EndsOn
+	for _, round := range payload.EventRounds[1:] {
+		if round.EndsOn > latestEnd {
+			latestEnd = round.EndsOn
+		}
+	}
+	var expiryMatches bool
+	if err := db.QueryRow(`
+		SELECT (expires_at AT TIME ZONE 'Asia/Bangkok')::date = ($2::date + 1)
+		FROM public.listings
+		WHERE id = $1
+	`, listingID, latestEnd).Scan(&expiryMatches); err != nil {
+		t.Fatal(err)
+	}
+	if !expiryMatches {
+		t.Fatalf("event listing expiry does not follow the final round ending %s", latestEnd)
+	}
+}
+
+func assertStructuredCategoryDetailsPersisted(t *testing.T, rawDetails []byte, submitted map[string]any, propertyType string, priceOnRequest bool, isTemporarySpace bool) {
 	t.Helper()
 	var details map[string]any
 	if err := json.Unmarshal(rawDetails, &details); err != nil {
 		t.Fatal("decode structured category details:", err)
 	}
-	assertStructuredCategoryDetailsMap(t, details, submitted, propertyType)
+	assertStructuredCategoryDetailsMap(t, details, submitted, propertyType, priceOnRequest, isTemporarySpace)
 }
 
-func assertStructuredCategoryDetailsMap(t *testing.T, details map[string]any, submitted map[string]any, propertyType string) {
+func assertStructuredCategoryDetailsMap(t *testing.T, details map[string]any, submitted map[string]any, propertyType string, priceOnRequest bool, isTemporarySpace bool) {
 	t.Helper()
 	expected := make(map[string]any, len(submitted)+2)
 	for key, value := range submitted {
 		expected[key] = value
 	}
-	expected["price_on_request"] = false
+	expected["price_on_request"] = priceOnRequest
 	expected["submission_mode"] = "minimum"
+	if isTemporarySpace {
+		if priceOnRequest {
+			expected["temporary_space_pricing_mode"] = "contact_organizer"
+		} else {
+			expected["temporary_space_pricing_mode"] = "fixed"
+		}
+	}
 
 	if len(details) != len(expected) {
 		t.Fatalf("structured detail count mismatch for %s: got=%d want=%d details=%#v", propertyType, len(details), len(expected), details)
@@ -2073,7 +2256,7 @@ func assertIntegrationListingDetailReadable(
 				t.Fatalf("public house detail land area mismatch for %s: %#v", category.propertyType, detail.LandAreaSqm)
 			}
 		}
-		assertStructuredCategoryDetailsMap(t, detail.CategoryDetails, integrationCategoryDetails(category), category.propertyType)
+		assertStructuredCategoryDetailsMap(t, detail.CategoryDetails, integrationCategoryDetails(category), category.propertyType, payload.PriceOnRequest, inSet("event_booth", category.spaceTypes...))
 	}
 	if category.discoveryChannel == "rooms" {
 		if detail.LandAreaSqm != nil || detail.UsableAreaSqm == nil || *detail.UsableAreaSqm != 85.5 || detail.ParkingCount == nil || *detail.ParkingCount != 1 || detail.TotalFloors == nil || *detail.TotalFloors != 20 || detail.FurnishingStatus != "fully_furnished" || detail.PropertyCondition != "good" || detail.OccupancyStatus != "vacant" {
@@ -2139,7 +2322,7 @@ func assertIntegrationListingDetailReadable(
 				t.Fatalf("public business unit should not contain land area for %s: %#v", category.propertyType, detail.LandAreaSqm)
 			}
 		}
-		assertStructuredCategoryDetailsMap(t, detail.CategoryDetails, integrationCategoryDetails(category), category.propertyType)
+		assertStructuredCategoryDetailsMap(t, detail.CategoryDetails, integrationCategoryDetails(category), category.propertyType, payload.PriceOnRequest, inSet("event_booth", category.spaceTypes...))
 	}
 	expectedAmenities := []string{"air_conditioning", "parking"}
 	if category.propertyType == "land" {
@@ -2154,6 +2337,24 @@ func assertIntegrationListingDetailReadable(
 	}
 	if !reflect.DeepEqual(detail.AllowedBusinessTypes, expectedAllowedBusinessTypes) {
 		t.Fatalf("listing detail allowed business types mismatch: got=%#v want=%#v", detail.AllowedBusinessTypes, expectedAllowedBusinessTypes)
+	}
+	if inSet("event_booth", payload.SpaceTypeCodes...) {
+		if detail.Event == nil {
+			t.Fatal("event listing detail did not include event data")
+		}
+		if detail.Event.Name != payload.EventName || detail.Event.VenueName != payload.EventVenueName || detail.Event.VenueFloorLabel != payload.EventVenueFloorLabel || detail.Event.FloorPlanURL != payload.EventFloorPlanURL {
+			t.Fatalf("public event details mismatch: got=%#v payload=%#v", detail.Event, payload)
+		}
+		if len(detail.Event.Rounds) != len(payload.EventRounds) {
+			t.Fatalf("public event rounds mismatch: got=%d want=%d", len(detail.Event.Rounds), len(payload.EventRounds))
+		}
+		for index, round := range detail.Event.Rounds {
+			if round.StartsOn != payload.EventRounds[index].StartsOn || round.EndsOn != payload.EventRounds[index].EndsOn {
+				t.Fatalf("public event round %d mismatch: got=%#v want=%#v", index+1, round, payload.EventRounds[index])
+			}
+		}
+	} else if detail.Event != nil {
+		t.Fatalf("non-event listing returned event data: %#v", detail.Event)
 	}
 }
 
@@ -2171,9 +2372,22 @@ func assertIntegrationPublicOffer(t *testing.T, detail listingDetailResponse, ca
 	case "sale":
 		expectedAmount = payload.SalePrice
 	case "rent", "sublease":
-		if inSet("event_booth", category.spaceTypes...) {
-			expectedAmount = payload.TemporarySpacePrice
-			expectedUnit = "event_period"
+		if category.propertyType == "retail_space" {
+			expectedAmount = payload.RetailRentPrice
+			if expectedAmount == "" {
+				expectedAmount = payload.RentPriceMonthly
+				if inSet("event_booth", category.spaceTypes...) {
+					expectedAmount = payload.TemporarySpacePrice
+				}
+			}
+			expectedUnit = payload.PriceUnit
+			if expectedUnit == "" {
+				if inSet("event_booth", category.spaceTypes...) {
+					expectedUnit = "event_period"
+				} else {
+					expectedUnit = "month"
+				}
+			}
 		} else {
 			expectedAmount = payload.RentPriceMonthly
 			expectedUnit = "month"
@@ -2188,6 +2402,9 @@ func assertIntegrationPublicOffer(t *testing.T, detail listingDetailResponse, ca
 		if detail.OfferAmount != nil {
 			t.Fatalf("public offer amount should be omitted, got=%v", *detail.OfferAmount)
 		}
+		if category.propertyType == "retail_space" && (detail.DepositAmount != nil || detail.AdvanceRentAmount != nil || detail.MinimumContractMonths != nil || detail.ServiceFeeMonthly != nil) {
+			t.Fatalf("price-on-request retail terms should be omitted: deposit=%v advance=%v minimum=%v service=%v", detail.DepositAmount, detail.AdvanceRentAmount, detail.MinimumContractMonths, detail.ServiceFeeMonthly)
+		}
 		return
 	}
 	want, err := strconv.ParseFloat(expectedAmount, 64)
@@ -2196,6 +2413,41 @@ func assertIntegrationPublicOffer(t *testing.T, detail listingDetailResponse, ca
 	}
 	if detail.OfferAmount == nil || *detail.OfferAmount != want {
 		t.Fatalf("public offer amount mismatch: got=%v want=%v", detail.OfferAmount, want)
+	}
+	if category.propertyType == "retail_space" && (expectedType == "rent" || expectedType == "sublease") {
+		assertIntegrationOptionalFloat(t, "deposit", detail.DepositAmount, payload.DepositAmount)
+		assertIntegrationOptionalFloat(t, "advance rent", detail.AdvanceRentAmount, payload.AdvanceRentAmount)
+		assertIntegrationOptionalFloat(t, "service fee", detail.ServiceFeeMonthly, payload.ServiceFeeMonthly)
+		if payload.MinimumLeaseMonths == "" {
+			if detail.MinimumContractMonths != nil {
+				t.Fatalf("minimum contract should be omitted, got=%d", *detail.MinimumContractMonths)
+			}
+		} else {
+			minimumMonths, err := strconv.Atoi(payload.MinimumLeaseMonths)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if detail.MinimumContractMonths == nil || *detail.MinimumContractMonths != minimumMonths {
+				t.Fatalf("minimum contract mismatch: got=%v want=%d", detail.MinimumContractMonths, minimumMonths)
+			}
+		}
+	}
+}
+
+func assertIntegrationOptionalFloat(t *testing.T, label string, actual *float64, expected string) {
+	t.Helper()
+	if expected == "" {
+		if actual != nil {
+			t.Fatalf("%s should be omitted, got=%v", label, *actual)
+		}
+		return
+	}
+	want, err := strconv.ParseFloat(expected, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actual == nil || *actual != want {
+		t.Fatalf("%s mismatch: got=%v want=%v", label, actual, want)
 	}
 }
 

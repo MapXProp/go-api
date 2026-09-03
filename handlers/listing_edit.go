@@ -295,6 +295,9 @@ func GetMyListingEditDraft(db *sql.DB) fiber.Handler {
 		if err := loadListingMediaIntoDraft(ctx, db, listingID, draft); err != nil {
 			return listingEditReadError(c, err)
 		}
+		if err := loadListingEventIntoDraft(ctx, db, listingID, draft); err != nil {
+			return listingEditReadError(c, err)
+		}
 
 		now := time.Now().UTC()
 		draft["lastStep"] = "3"
@@ -306,10 +309,63 @@ func GetMyListingEditDraft(db *sql.DB) fiber.Handler {
 	}
 }
 
+func loadListingEventIntoDraft(ctx context.Context, db *sql.DB, listingID int64, draft map[string]any) error {
+	var eventName, venueName, venueFloor, floorPlanURL string
+	err := db.QueryRowContext(ctx, `
+		SELECT event_name, venue_name,
+			COALESCE(venue_floor_label, ''), COALESCE(floor_plan_url, '')
+		FROM public.listing_event_details
+		WHERE listing_id = $1
+	`, listingID).Scan(&eventName, &venueName, &venueFloor, &floorPlanURL)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	putDraftText(draft, "eventName", eventName)
+	putDraftText(draft, "eventVenueName", venueName)
+	putDraftText(draft, "eventVenueFloor", venueFloor)
+	putDraftText(draft, "eventFloorPlanUrl", floorPlanURL)
+	if floorPlanURL != "" {
+		putDraftText(draft, "selectedFloorPlanCount", "1")
+	}
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT starts_on::text, ends_on::text
+		FROM public.listing_event_rounds
+		WHERE listing_id = $1
+		ORDER BY sort_order, starts_on, id
+	`, listingID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	starts := make([]string, 0)
+	ends := make([]string, 0)
+	for rows.Next() {
+		var startsOn, endsOn string
+		if err := rows.Scan(&startsOn, &endsOn); err != nil {
+			return err
+		}
+		starts = append(starts, startsOn)
+		ends = append(ends, endsOn)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	putDraftStrings(draft, "eventRoundStarts[]", starts)
+	putDraftStrings(draft, "eventRoundEnds[]", ends)
+	return nil
+}
+
 func loadListingOffersIntoDraft(ctx context.Context, db *sql.DB, listingID int64, draft map[string]any) error {
 	rows, err := db.QueryContext(ctx, `
 		SELECT offer_type, amount, price_unit, currency_code,
-			minimum_contract_months, service_fee_monthly, is_negotiable
+			deposit_amount, advance_amount, minimum_contract_months,
+			service_fee_monthly, is_negotiable
 		FROM public.listing_offers
 		WHERE listing_id = $1
 		ORDER BY id
@@ -322,10 +378,14 @@ func loadListingOffersIntoDraft(ctx context.Context, db *sql.DB, listingID int64
 	offerTypes := make([]string, 0, 3)
 	for rows.Next() {
 		var offerType, priceUnit, currency string
-		var amount, serviceFee sql.NullFloat64
+		var amount, depositAmount, advanceAmount, serviceFee sql.NullFloat64
 		var minimumMonths sql.NullInt64
 		var negotiable bool
-		if err := rows.Scan(&offerType, &amount, &priceUnit, &currency, &minimumMonths, &serviceFee, &negotiable); err != nil {
+		if err := rows.Scan(
+			&offerType, &amount, &priceUnit, &currency,
+			&depositAmount, &advanceAmount, &minimumMonths,
+			&serviceFee, &negotiable,
+		); err != nil {
 			return err
 		}
 		offerTypes = append(offerTypes, offerType)
@@ -338,6 +398,12 @@ func loadListingOffersIntoDraft(ctx context.Context, db *sql.DB, listingID int64
 		if serviceFee.Valid {
 			putDraftText(draft, "serviceFeeMonthly", formatListingEditFloat(serviceFee.Float64))
 		}
+		if depositAmount.Valid {
+			putDraftText(draft, "depositAmount", formatListingEditFloat(depositAmount.Float64))
+		}
+		if advanceAmount.Valid {
+			putDraftText(draft, "advanceRentAmount", formatListingEditFloat(advanceAmount.Float64))
+		}
 		if !amount.Valid {
 			continue
 		}
@@ -346,8 +412,9 @@ func loadListingOffersIntoDraft(ctx context.Context, db *sql.DB, listingID int64
 		case "sale":
 			putDraftText(draft, "salePrice", amountText)
 		case "rent", "sublease":
-			if priceUnit == "event_period" {
-				putDraftText(draft, "temporarySpacePrice", amountText)
+			if propertyType, _ := draft["property_type_code"].(string); propertyType == "retail_space" {
+				putDraftText(draft, "retailRentPrice", amountText)
+				putDraftText(draft, "retailPriceUnit", priceUnit)
 			} else {
 				putDraftText(draft, "rentPriceMonthly", amountText)
 			}

@@ -137,6 +137,10 @@ type listingDetailResponse struct {
 	OfferAmount           *float64                         `json:"offer_amount,omitempty"`
 	PriceUnit             string                           `json:"price_unit"`
 	Currency              string                           `json:"currency"`
+	DepositAmount         *float64                         `json:"deposit_amount,omitempty"`
+	AdvanceRentAmount     *float64                         `json:"advance_rent_amount,omitempty"`
+	MinimumContractMonths *int                             `json:"minimum_contract_months,omitempty"`
+	ServiceFeeMonthly     *float64                         `json:"service_fee_monthly,omitempty"`
 	Amenities             []string                         `json:"amenities"`
 	PublishedAt           *time.Time                       `json:"published_at,omitempty"`
 	ExpiresAt             *time.Time                       `json:"expires_at,omitempty"`
@@ -160,8 +164,8 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 		defer cancel()
 
 		var item listingDetailResponse
-		var latitude, longitude, amount, usableAreaSqm, landAreaSqm sql.NullFloat64
-		var bedroomCount, bathroomCount, parkingCount, floorNo, totalFloors sql.NullInt64
+		var latitude, longitude, amount, depositAmount, advanceAmount, serviceFee, usableAreaSqm, landAreaSqm sql.NullFloat64
+		var bedroomCount, bathroomCount, parkingCount, floorNo, totalFloors, minimumContractMonths sql.NullInt64
 		var publishedAt, expiresAt, sourcePublishedAt sql.NullTime
 		var rawCategoryDetails []byte
 		var eventName, organizerName, organizerWebsiteURL, organizerVerificationStatus, venueName, venueFloor, applicationInstructions, floorPlanURL sql.NullString
@@ -186,7 +190,8 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				COALESCE(lcp.role_code, ''), COALESCE(lcp.authority_source_code, ''),
 				COALESCE(lcp.organization_name, ''), COALESCE(lcp.verification_status, 'unverified'),
 				COALESCE(lo.offer_type, ''), lo.amount, COALESCE(lo.price_unit, l.price_unit, ''),
-				COALESCE(lo.currency_code, 'THB'),
+				COALESCE(lo.currency_code, 'THB'), lo.deposit_amount, lo.advance_amount,
+				lo.minimum_contract_months, lo.service_fee_monthly,
 				l.published_at, l.expires_at, l.is_verified, COALESCE(lcd.details, '{}'::jsonb),
 				led.event_name, led.organizer_name,
 				organizer.website_url, organizer.verification_status,
@@ -199,7 +204,8 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			LEFT JOIN public.listing_category_details lcd ON lcd.listing_id = l.id
 			LEFT JOIN public.listing_contact_profiles lcp ON lcp.listing_id = l.id
 			LEFT JOIN LATERAL (
-				SELECT offer_type, amount, price_unit, currency_code
+				SELECT offer_type, amount, price_unit, currency_code, deposit_amount,
+					advance_amount, minimum_contract_months, service_fee_monthly
 				FROM public.listing_offers
 				WHERE listing_id = l.id
 				ORDER BY CASE offer_type WHEN 'rent' THEN 0 WHEN 'sublease' THEN 1 ELSE 2 END, id
@@ -212,6 +218,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			  AND l.deleted_at IS NULL
 			  AND l.listing_status = 'active'
 			  AND l.moderation_status = 'approved'
+			  AND (l.expires_at IS NULL OR l.expires_at > now())
 			LIMIT 1
 		`, slug).Scan(
 			&item.ID, &item.PublicListingID, &item.Slug, &item.Title,
@@ -226,6 +233,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			&item.ContactPhoneSecondary, &item.ContactEmail, &item.LineID, &item.InstagramHandle,
 			&item.ContactRoleCode, &item.ContactAuthorityCode, &item.ContactOrganization, &item.ContactVerification,
 			&item.OfferType, &amount, &item.PriceUnit, &item.Currency,
+			&depositAmount, &advanceAmount, &minimumContractMonths, &serviceFee,
 			&publishedAt, &expiresAt, &item.IsVerified, &rawCategoryDetails,
 			&eventName, &organizerName, &organizerWebsiteURL, &organizerVerificationStatus, &venueName, &venueFloor,
 			&audienceSegments, &acceptedProducts, &applicationInstructions, &floorPlanURL,
@@ -278,6 +286,19 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 		}
 		if amount.Valid {
 			item.OfferAmount = &amount.Float64
+		}
+		if depositAmount.Valid {
+			item.DepositAmount = &depositAmount.Float64
+		}
+		if advanceAmount.Valid {
+			item.AdvanceRentAmount = &advanceAmount.Float64
+		}
+		if minimumContractMonths.Valid {
+			value := int(minimumContractMonths.Int64)
+			item.MinimumContractMonths = &value
+		}
+		if serviceFee.Valid {
+			item.ServiceFeeMonthly = &serviceFee.Float64
 		}
 		if publishedAt.Valid {
 			item.PublishedAt = &publishedAt.Time
