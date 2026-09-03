@@ -138,6 +138,50 @@ func parseSearchBounds(c *fiber.Ctx) (*searchBounds, error) {
 	return bounds, nil
 }
 
+var searchablePropertyTypes = map[string]bool{
+	"detached_house": true, "semi_detached_house": true, "townhouse": true, "condo": true,
+	"apartment": true, "dormitory": true, "rental_room": true, "flat": true, "monthly_hotel": true,
+	"shophouse": true, "home_office": true, "office": true, "retail_space": true, "warehouse": true,
+	"factory": true, "hotel_resort": true, "land": true,
+}
+
+var searchableSpaceTypes = map[string]bool{
+	"standalone_shop": true, "market_stall": true, "mall_kiosk": true, "mall_shop": true,
+	"food_court_counter": true, "school_canteen": true, "office_canteen": true, "dormitory_shop": true,
+	"street_food_space": true, "shophouse_ground_floor": true, "event_booth": true,
+}
+
+var searchableOfferTypes = map[string]bool{
+	"sale": true, "rent": true, "sublease": true, "business_transfer": true,
+}
+
+func allowedQueryValues(c *fiber.Ctx, key string, allowed map[string]bool) []string {
+	seen := map[string]bool{}
+	result := []string{}
+	for _, raw := range c.Context().QueryArgs().PeekMulti(key) {
+		for _, part := range strings.Split(string(raw), ",") {
+			value := strings.TrimSpace(part)
+			if allowed[value] && !seen[value] {
+				seen[value] = true
+				result = append(result, value)
+			}
+		}
+	}
+	return result
+}
+
+func optionalPositiveNumber(value string) *float64 {
+	value = strings.ReplaceAll(strings.TrimSpace(value), ",", "")
+	if value == "" {
+		return nil
+	}
+	number, err := strconv.ParseFloat(value, 64)
+	if err != nil || number < 0 {
+		return nil
+	}
+	return &number
+}
+
 var (
 	spacePattern      = regexp.MustCompile(`\s+`)
 	priceRangePattern = regexp.MustCompile(`(?i)([0-9]+(?:\.[0-9]+)?)\s*(?:-|–|—|ถึง|to)\s*([0-9]+(?:\.[0-9]+)?)\s*(ล้าน|แสน|หมื่น|พัน|m|k)?`)
@@ -511,6 +555,10 @@ func InterpretPropertySearch(db *sql.DB) fiber.Handler {
 func PropertySearchSuggestions(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		query := normalizeSearchText(c.Query("q"))
+		scope := strings.TrimSpace(c.Query("scope", "all"))
+		if scope != "all" && scope != "location" {
+			return c.Status(400).JSON(fiber.Map{"error": "invalid suggestion scope"})
+		}
 		limit, _ := strconv.Atoi(c.Query("limit", "8"))
 		if limit < 1 || limit > 12 {
 			limit = 8
@@ -532,15 +580,105 @@ func PropertySearchSuggestions(db *sql.DB) fiber.Handler {
 				{Type: "popular", Label: "ร้านให้เช่าสยามไม่เกิน 50,000", Description: "ร้านค้า · เช่า · สยาม", Query: "ร้านให้เช่าสยามไม่เกิน 50000"},
 			}})
 		}
+		locale := searchLocale(query)
 		rows, err := db.QueryContext(ctx, `
 			SELECT kind, label, description, suggested_query FROM (
-				SELECT 'location' AS kind, name_th AS label, location_type AS description,
-					name_th AS suggested_query, priority,
-					greatest(similarity(lower(name_th), $1), similarity(lower(name_en), $1)) AS score
+				SELECT 'location' AS kind,
+					CASE WHEN $3 = 'en' THEN name_en ELSE name_th END AS label,
+					location_type AS description,
+					name_th AS suggested_query,
+					priority,
+					greatest(similarity(lower(name_th), $1), similarity(lower(name_en), $1)) AS score,
+					CASE
+						WHEN lower(name_th) = $1 OR lower(name_en) = $1 THEN 4
+						WHEN lower(name_th) LIKE $1 || '%' OR lower(name_en) LIKE $1 || '%' THEN 3
+						ELSE 1
+					END AS match_rank
 				FROM public.search_locations
-			WHERE is_active AND (lower(name_th) ILIKE '%' || $1 || '%' OR lower(name_en) ILIKE '%' || $1 || '%' OR EXISTS (
-				SELECT 1 FROM unnest(aliases) alias WHERE lower(alias) ILIKE '%' || $1 || '%'
-			))
+				WHERE is_active
+				  AND location_type IN ('country', 'neighborhood', 'transit', 'project')
+				  AND (lower(name_th) ILIKE '%' || $1 || '%' OR lower(name_en) ILIKE '%' || $1 || '%' OR EXISTS (
+					SELECT 1 FROM unnest(aliases) alias WHERE lower(alias) ILIKE '%' || $1 || '%'
+				  ))
+
+				UNION ALL
+				SELECT 'location',
+					CASE WHEN $3 = 'en' THEN p.name_en ELSE p.name_th END,
+					'province',
+					p.name_th,
+					100,
+					greatest(similarity(lower(p.name_th), $1), similarity(lower(p.name_en), $1)),
+					CASE
+						WHEN lower(p.name_th) = $1 OR lower(p.name_en) = $1 THEN 4
+						WHEN lower(p.name_th) LIKE $1 || '%' OR lower(p.name_en) LIKE $1 || '%' THEN 3
+						ELSE 1
+					END
+				FROM public.location_provinces p
+				WHERE lower(p.name_th) ILIKE '%' || $1 || '%' OR lower(p.name_en) ILIKE '%' || $1 || '%'
+
+				UNION ALL
+				SELECT 'location',
+					CASE WHEN $3 = 'en'
+						THEN d.name_en || ' · ' || p.name_en
+						ELSE d.name_th || ' · ' || p.name_th
+					END,
+					'district',
+					p.name_th || ' ' || regexp_replace(d.name_th, '^(เขต|อำเภอ|กิ่งอำเภอ)\s*', ''),
+					80,
+					greatest(similarity(lower(d.name_th), $1), similarity(lower(d.name_en), $1)),
+					CASE
+						WHEN lower(d.name_th) = $1 OR lower(d.name_en) = $1 THEN 4
+						WHEN lower(d.name_th) LIKE $1 || '%' OR lower(d.name_en) LIKE $1 || '%' THEN 3
+						ELSE 1
+					END
+				FROM public.location_districts d
+				JOIN public.location_provinces p ON p.id = d.province_id
+				WHERE lower(d.name_th) ILIKE '%' || $1 || '%' OR lower(d.name_en) ILIKE '%' || $1 || '%'
+
+				UNION ALL
+				SELECT 'location',
+					CASE WHEN $3 = 'en'
+						THEN s.name_en || ' · ' || d.name_en || ' · ' || p.name_en
+						ELSE s.name_th || ' · ' || d.name_th || ' · ' || p.name_th
+					END,
+					'subdistrict',
+					p.name_th || ' ' || regexp_replace(d.name_th, '^(เขต|อำเภอ|กิ่งอำเภอ)\s*', '') || ' ' || s.name_th,
+					70,
+					greatest(similarity(lower(s.name_th), $1), similarity(lower(s.name_en), $1)),
+					CASE
+						WHEN lower(s.name_th) = $1 OR lower(s.name_en) = $1 THEN 4
+						WHEN lower(s.name_th) LIKE $1 || '%' OR lower(s.name_en) LIKE $1 || '%' THEN 3
+						ELSE 1
+					END
+				FROM public.location_subdistricts s
+				JOIN public.location_districts d ON d.id = s.district_id
+				JOIN public.location_provinces p ON p.id = d.province_id
+				WHERE lower(s.name_th) ILIKE '%' || $1 || '%' OR lower(s.name_en) ILIKE '%' || $1 || '%'
+
+				UNION ALL
+				SELECT 'location', place.name, place.kind, place.name, place.priority,
+					similarity(lower(place.name), $1),
+					CASE
+						WHEN lower(place.name) = $1 THEN 4
+						WHEN lower(place.name) LIKE $1 || '%' THEN 3
+						ELSE 1
+					END
+				FROM public.listings l
+				CROSS JOIN LATERAL (
+					VALUES
+						(NULLIF(trim(l.custom_project_name), ''), 'project', 96),
+						(NULLIF(trim(l.custom_building_name), ''), 'building', 94)
+				) AS place(name, kind, priority)
+				WHERE place.name IS NOT NULL
+				  AND l.published_at IS NOT NULL
+				  AND l.deleted_at IS NULL
+				  AND l.is_active = true
+				  AND l.listing_status = 'active'
+				  AND l.moderation_status = 'approved'
+				  AND (l.expires_at IS NULL OR l.expires_at > now())
+				  AND lower(place.name) ILIKE '%' || $1 || '%'
+				GROUP BY place.name, place.kind, place.priority
+
 				UNION ALL
 				SELECT sa.intent_type,
 					CASE
@@ -549,12 +687,19 @@ func PropertySearchSuggestions(db *sql.DB) fiber.Handler {
 						ELSE sa.phrase
 					END,
 					sa.intent_value, sa.phrase, sa.priority,
-					similarity(sa.normalized_phrase, $1)
+					similarity(sa.normalized_phrase, $1),
+					CASE
+						WHEN sa.normalized_phrase = $1 THEN 4
+						WHEN sa.normalized_phrase LIKE $1 || '%' THEN 3
+						ELSE 1
+					END
 				FROM public.search_aliases sa
 				LEFT JOIN public.property_types pt
 					ON sa.intent_type = 'property_type' AND pt.code = sa.intent_value
-				WHERE sa.is_active AND sa.normalized_phrase ILIKE '%' || $1 || '%'
-			) s ORDER BY score DESC, priority DESC LIMIT $2`, query, limit)
+				WHERE $4 <> 'location' AND sa.is_active AND sa.normalized_phrase ILIKE '%' || $1 || '%'
+			) s
+			ORDER BY match_rank DESC, score DESC, priority DESC, length(label)
+			LIMIT $2`, query, limit, locale, scope)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": "cannot load suggestions"})
 		}
@@ -609,6 +754,9 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		}
 		args := []any{}
 		arg := func(value any) string { args = append(args, value); return fmt.Sprintf("$%d", len(args)) }
+		directPropertyTypes := allowedQueryValues(c, "property_type", searchablePropertyTypes)
+		directSpaceTypes := allowedQueryValues(c, "space_type", searchableSpaceTypes)
+		directOfferTypes := allowedQueryValues(c, "offer_type", searchableOfferTypes)
 		discoveryChannel := strings.TrimSpace(c.Query("channel"))
 		if discoveryChannel != "" {
 			validChannels := map[string]bool{"homes": true, "rooms": true, "business": true}
@@ -668,11 +816,31 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		if len(categoryFilters) > 0 {
 			where = append(where, "("+strings.Join(categoryFilters, " OR ")+")")
 		}
+		directCategoryFilters := []string{}
+		if len(directPropertyTypes) > 0 {
+			directCategoryFilters = append(directCategoryFilters, "l.property_type_code = ANY("+arg(pq.Array(directPropertyTypes))+")")
+		}
+		if len(directSpaceTypes) > 0 {
+			spaceTypesArg := arg(pq.Array(directSpaceTypes))
+			directCategoryFilters = append(directCategoryFilters, `(EXISTS (
+				SELECT 1 FROM public.listing_space_types lst
+				WHERE lst.listing_id=l.id AND lst.space_type_code = ANY(`+spaceTypesArg+`)
+			) OR EXISTS (
+				SELECT 1 FROM public.listing_business_details lbd
+				WHERE lbd.listing_id=l.id AND lbd.venue_type_code = ANY(`+spaceTypesArg+`)
+			))`)
+		}
+		if len(directCategoryFilters) > 0 {
+			where = append(where, "("+strings.Join(directCategoryFilters, " OR ")+")")
+		}
 		if len(intent.UseCases) > 0 {
 			where = append(where, "EXISTS (SELECT 1 FROM public.listing_use_cases luc WHERE luc.listing_id=l.id AND luc.use_case_code = ANY("+arg(pq.Array(intent.UseCases))+"))")
 		}
 		if len(intent.OfferTypes) > 0 {
 			where = append(where, "EXISTS (SELECT 1 FROM public.listing_offers lo WHERE lo.listing_id=l.id AND lo.offer_type = ANY("+arg(pq.Array(intent.OfferTypes))+"))")
+		}
+		if len(directOfferTypes) > 0 {
+			where = append(where, "EXISTS (SELECT 1 FROM public.listing_offers lo WHERE lo.listing_id=l.id AND lo.offer_type = ANY("+arg(pq.Array(directOfferTypes))+"))")
 		}
 		if len(intent.Locations) > 0 {
 			location := intent.Locations[0]
@@ -703,6 +871,21 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			}
 			if intent.MaxPrice != nil {
 				parts = append(parts, "lo.amount <= "+arg(*intent.MaxPrice))
+			}
+			where = append(where, "EXISTS (SELECT 1 FROM public.listing_offers lo WHERE "+strings.Join(parts, " AND ")+")")
+		}
+		directMinPrice := optionalPositiveNumber(c.Query("price_min"))
+		directMaxPrice := optionalPositiveNumber(c.Query("price_max"))
+		if directMinPrice != nil || directMaxPrice != nil {
+			parts := []string{"lo.listing_id=l.id", "lo.amount IS NOT NULL"}
+			if len(directOfferTypes) > 0 {
+				parts = append(parts, "lo.offer_type = ANY("+arg(pq.Array(directOfferTypes))+")")
+			}
+			if directMinPrice != nil {
+				parts = append(parts, "lo.amount >= "+arg(*directMinPrice))
+			}
+			if directMaxPrice != nil {
+				parts = append(parts, "lo.amount <= "+arg(*directMaxPrice))
 			}
 			where = append(where, "EXISTS (SELECT 1 FROM public.listing_offers lo WHERE "+strings.Join(parts, " AND ")+")")
 		}

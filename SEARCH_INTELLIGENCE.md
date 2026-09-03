@@ -6,6 +6,7 @@ buyer to choose offer type, property type or budget before seeing results.
 ## API
 
 - `GET /apix/search/suggestions?q=คอน` — autocomplete and popular searches
+- `GET /apix/search/suggestions?scope=location&q=บางนา` — location-only autocomplete
 - `GET /apix/search/interpret?q=คอนโดอารีย์` — inspect the parsed intent
 - `GET /apix/properties/search?q=คอนโดอารีย์` — interpreted intent and listings
 
@@ -16,7 +17,8 @@ refinements.
 
 ## Database
 
-- `search_locations` stores provinces, districts, neighborhoods, transit and projects.
+- `location_provinces`, `location_districts` and `location_subdistricts` provide the canonical Thai address autocomplete hierarchy.
+- `search_locations` stores flexible places outside that hierarchy, such as neighborhoods, transit and projects.
 - `search_aliases` maps natural phrases to canonical taxonomy codes.
 - `listings.search_text` is refreshed by a trigger and indexed with `pg_trgm`.
 - `search_query_events` records parsed searches and zero-result queries for tuning.
