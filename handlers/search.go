@@ -680,6 +680,25 @@ func PropertySearchSuggestions(db *sql.DB) fiber.Handler {
 				GROUP BY place.name, place.kind, place.priority
 
 				UNION ALL
+				SELECT 'listing', l.title, 'listing', l.title, 90,
+					similarity(lower(l.title), $1),
+					CASE
+						WHEN lower(l.title) = $1 THEN 4
+						WHEN lower(l.title) LIKE $1 || '%' THEN 3
+						ELSE 1
+					END
+				FROM public.listings l
+				WHERE $4 <> 'location'
+				  AND l.published_at IS NOT NULL
+				  AND l.deleted_at IS NULL
+				  AND l.is_active = true
+				  AND l.listing_status = 'active'
+				  AND l.moderation_status = 'approved'
+				  AND (l.expires_at IS NULL OR l.expires_at > now())
+				  AND lower(l.title) ILIKE '%' || $1 || '%'
+				GROUP BY l.title
+
+				UNION ALL
 				SELECT sa.intent_type,
 					CASE
 						WHEN sa.intent_type = 'property_type' AND sa.locale = 'th' THEN COALESCE(pt.name_th, sa.phrase)
