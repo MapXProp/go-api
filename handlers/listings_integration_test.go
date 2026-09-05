@@ -2398,6 +2398,10 @@ func assertIntegrationPublicOffer(t *testing.T, detail listingDetailResponse, ca
 	if detail.OfferType != expectedType || detail.PriceUnit != expectedUnit || detail.Currency != payload.Currency {
 		t.Fatalf("public offer mismatch: type=%q/%q unit=%q/%q currency=%q/%q", detail.OfferType, expectedType, detail.PriceUnit, expectedUnit, detail.Currency, payload.Currency)
 	}
+	expectedNegotiable := !payload.PriceOnRequest && payload.PriceNegotiable
+	if detail.PriceNegotiable != expectedNegotiable {
+		t.Fatalf("public negotiable mismatch: got=%v want=%v", detail.PriceNegotiable, expectedNegotiable)
+	}
 	if payload.PriceOnRequest || expectedAmount == "" {
 		if detail.OfferAmount != nil {
 			t.Fatalf("public offer amount should be omitted, got=%v", *detail.OfferAmount)
