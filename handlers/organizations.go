@@ -119,11 +119,15 @@ type organizationListingResponse struct {
 	PublicListingID string     `json:"public_listing_id"`
 	Slug            string     `json:"slug"`
 	Title           string     `json:"title"`
+	TitleEN         string     `json:"title_en,omitempty"`
 	PropertyType    string     `json:"property_type_code"`
 	ListingType     string     `json:"listing_type"`
 	Address         string     `json:"address"`
+	AddressEN       string     `json:"address_en,omitempty"`
 	Province        string     `json:"province"`
+	ProvinceEN      string     `json:"province_en,omitempty"`
 	District        string     `json:"district"`
+	DistrictEN      string     `json:"district_en,omitempty"`
 	OfferAmount     *float64   `json:"offer_amount,omitempty"`
 	PriceUnit       string     `json:"price_unit"`
 	Currency        string     `json:"currency"`
@@ -331,16 +335,22 @@ func GetOrganizationListings(db *sql.DB) fiber.Handler {
 		}
 
 		rows, err := db.QueryContext(ctx, `
-			SELECT l.public_listing_id::text, l.slug, l.title, l.property_type_code,
+			SELECT l.public_listing_id::text, l.slug, l.title, COALESCE(translation.title, ''), l.property_type_code,
 				COALESCE(l.listing_type, ''), trim(concat_ws(', ',
 					NULLIF(l.custom_project_name, ''),
 					NULLIF(l.address_line1, ''),
 					NULLIF(l.address_line2, '')
 				)),
-				COALESCE(l.province_name, ''), COALESCE(l.district_name, ''),
+				trim(concat_ws(', ', NULLIF(translation.address_line1, ''), NULLIF(translation.address_line2, ''))),
+				COALESCE(l.province_name, ''), COALESCE(translation.province_name, ''),
+				COALESCE(l.district_name, ''), COALESCE(translation.district_name, ''),
 				offer.amount, COALESCE(offer.price_unit, l.price_unit, ''),
 				COALESCE(offer.currency_code, 'THB'), COALESCE(media.url, ''), l.published_at
 			FROM public.listings l
+			LEFT JOIN public.listing_translations translation
+				ON translation.listing_id = l.id
+				AND translation.locale = 'en'
+				AND translation.translation_status = 'published'
 			LEFT JOIN LATERAL (
 				SELECT amount, price_unit, currency_code
 				FROM public.listing_offers
@@ -376,8 +386,8 @@ func GetOrganizationListings(db *sql.DB) fiber.Handler {
 			var offerAmount sql.NullFloat64
 			var publishedAt sql.NullTime
 			if err := rows.Scan(
-				&item.PublicListingID, &item.Slug, &item.Title, &item.PropertyType,
-				&item.ListingType, &item.Address, &item.Province, &item.District,
+				&item.PublicListingID, &item.Slug, &item.Title, &item.TitleEN, &item.PropertyType,
+				&item.ListingType, &item.Address, &item.AddressEN, &item.Province, &item.ProvinceEN, &item.District, &item.DistrictEN,
 				&offerAmount, &item.PriceUnit, &item.Currency, &item.PrimaryImageURL, &publishedAt,
 			); err != nil {
 				return organizationDatabaseError(c, "cannot load organization listings", err)

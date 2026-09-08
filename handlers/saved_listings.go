@@ -164,11 +164,14 @@ func loadSavedListings(ctx context.Context, db *sql.DB, userID int64) ([]searchL
 	rows, err := db.QueryContext(ctx, `
 		SELECT
 			listing.id, listing.public_listing_id::text, COALESCE(listing.slug, ''), listing.title,
-			COALESCE(listing.description, ''), listing.property_type_code,
+			COALESCE(translation.title, ''), COALESCE(listing.description, ''), COALESCE(translation.description, ''), listing.property_type_code,
 			COALESCE(listing.accommodation_model, ''), listing.listing_type,
 			COALESCE(listing.custom_project_name, ''),
 			trim(concat_ws(' ', listing.address_line1, listing.address_line2)),
-			COALESCE(listing.province_name, ''), COALESCE(listing.district_name, ''),
+			trim(concat_ws(' ', translation.address_line1, translation.address_line2)),
+			COALESCE(listing.province_name, ''), COALESCE(translation.province_name, ''),
+			COALESCE(listing.district_name, ''), COALESCE(translation.district_name, ''),
+			COALESCE(translation.subdistrict_name, ''), COALESCE(translation.road, ''),
 			listing.sale_price, listing.rent_price_monthly, COALESCE(offer.currency_code, 'THB'), listing.bedroom_count, listing.bathroom_count,
 			listing.usable_area_sqm, listing.land_area_sqm, listing.pet_allowed,
 			listing.latitude, listing.longitude, listing.published_at,
@@ -182,6 +185,10 @@ func loadSavedListings(ctx context.Context, db *sql.DB, userID int64) ([]searchL
 			listing.is_verified, COALESCE(source.source_type, '')
 		FROM public.user_saved_listings saved
 		JOIN public.listings listing ON listing.id = saved.listing_id
+		LEFT JOIN public.listing_translations translation
+			ON translation.listing_id = listing.id
+			AND translation.locale = 'en'
+			AND translation.translation_status = 'published'
 		LEFT JOIN public.listing_category_details category_details ON category_details.listing_id = listing.id
 		LEFT JOIN public.listing_event_details event_details ON event_details.listing_id = listing.id
 		LEFT JOIN LATERAL (
@@ -236,9 +243,9 @@ func loadSavedListings(ctx context.Context, db *sql.DB, userID int64) ([]searchL
 		var bedrooms, bathrooms sql.NullInt64
 		var publishedAt, eventStartsOn, eventEndsOn sql.NullTime
 		if err := rows.Scan(
-			&item.ID, &item.PublicListingID, &item.Slug, &item.Title,
-			&item.Description, &item.PropertyTypeCode, &item.AccommodationModel, &item.ListingType,
-			&item.ProjectName, &item.Address, &item.Province, &item.District,
+			&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.TitleEN,
+			&item.Description, &item.DescriptionEN, &item.PropertyTypeCode, &item.AccommodationModel, &item.ListingType,
+			&item.ProjectName, &item.Address, &item.AddressEN, &item.Province, &item.ProvinceEN, &item.District, &item.DistrictEN, &item.SubdistrictEN, &item.RoadEN,
 			&sale, &rent, &item.Currency, &bedrooms, &bathrooms, &area, &landArea, &item.PetAllowed,
 			&latitude, &longitude, &publishedAt, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes),
 			&item.PrimaryImageURL, &item.EventName, &item.EventFloorLabel, &item.EventRoundCount,

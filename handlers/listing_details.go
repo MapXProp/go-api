@@ -94,7 +94,9 @@ type listingDetailResponse struct {
 	PublicListingID          string                           `json:"public_listing_id"`
 	Slug                     string                           `json:"slug"`
 	Title                    string                           `json:"title"`
+	TitleEN                  string                           `json:"title_en,omitempty"`
 	Description              string                           `json:"description"`
+	DescriptionEN            string                           `json:"description_en,omitempty"`
 	PropertyTypeCode         string                           `json:"property_type_code"`
 	AccommodationModel       string                           `json:"accommodation_model"`
 	UsageType                string                           `json:"usage_type"`
@@ -110,11 +112,16 @@ type listingDetailResponse struct {
 	ProjectCategory          string                           `json:"project_category,omitempty"`
 	BuildingName             string                           `json:"building_name"`
 	Address                  string                           `json:"address"`
+	AddressEN                string                           `json:"address_en,omitempty"`
 	Province                 string                           `json:"province"`
+	ProvinceEN               string                           `json:"province_en,omitempty"`
 	District                 string                           `json:"district"`
+	DistrictEN               string                           `json:"district_en,omitempty"`
 	Subdistrict              string                           `json:"subdistrict"`
+	SubdistrictEN            string                           `json:"subdistrict_en,omitempty"`
 	PostalCode               string                           `json:"postal_code"`
 	Road                     string                           `json:"road"`
+	RoadEN                   string                           `json:"road_en,omitempty"`
 	UsableAreaSqm            *float64                         `json:"usable_area_sqm,omitempty"`
 	LandAreaSqm              *float64                         `json:"land_area_sqm,omitempty"`
 	BedroomCount             *int                             `json:"bedroom_count,omitempty"`
@@ -184,17 +191,19 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 
 		err := db.QueryRowContext(ctx, `
 			SELECT
-				l.id, l.public_listing_id::text, COALESCE(l.slug, ''), l.title,
-				COALESCE(l.description, ''), l.property_type_code, COALESCE(l.accommodation_model, ''), l.usage_type,
+				l.id, l.public_listing_id::text, COALESCE(l.slug, ''), l.title, COALESCE(lt_en.title, ''),
+				COALESCE(l.description, ''), COALESCE(lt_en.description, ''), l.property_type_code, COALESCE(l.accommodation_model, ''), l.usage_type,
 				l.listing_type, l.listing_scope, COALESCE(l.space_type_code, ''),
 				COALESCE(project.name_th, l.custom_project_name, ''),
 				COALESCE(project.public_project_id::text, ''), COALESCE(project.slug, ''),
 				COALESCE(project.name_en, ''), COALESCE(project.project_category, ''),
 				COALESCE(l.custom_building_name, ''),
 				trim(concat_ws(' ', l.address_line1, l.address_line2)),
-				COALESCE(l.province_name, ''), COALESCE(l.district_name, ''),
-				COALESCE(l.subdistrict_name, ''), COALESCE(l.postal_code, ''),
-				COALESCE(l.road, ''), l.usable_area_sqm, l.land_area_sqm,
+				trim(concat_ws(' ', lt_en.address_line1, lt_en.address_line2)),
+				COALESCE(l.province_name, ''), COALESCE(lt_en.province_name, ''),
+				COALESCE(l.district_name, ''), COALESCE(lt_en.district_name, ''),
+				COALESCE(l.subdistrict_name, ''), COALESCE(lt_en.subdistrict_name, ''), COALESCE(l.postal_code, ''),
+				COALESCE(l.road, ''), COALESCE(lt_en.road, ''), l.usable_area_sqm, l.land_area_sqm,
 				l.bedroom_count, l.bathroom_count, l.parking_count, l.floor_no, l.total_floors,
 				COALESCE(l.furnishing_status, ''), COALESCE(l.property_condition, ''), COALESCE(l.occupancy_status, ''),
 				l.latitude, l.longitude,
@@ -216,6 +225,10 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				COALESCE((lcd.details->>'price_on_request')::boolean, led.price_on_request),
 				led.booth_size_on_request, led.source_published_at
 			FROM public.listings l
+			LEFT JOIN public.listing_translations lt_en
+				ON lt_en.listing_id = l.id
+				AND lt_en.locale = 'en'
+				AND lt_en.translation_status = 'published'
 			LEFT JOIN public.listing_category_details lcd ON lcd.listing_id = l.id
 			LEFT JOIN public.listing_contact_profiles lcp ON lcp.listing_id = l.id
 			LEFT JOIN public.organizations o ON o.id = l.organization_id AND o.is_active = true AND o.deleted_at IS NULL
@@ -238,13 +251,13 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			  AND (l.expires_at IS NULL OR l.expires_at > now())
 			LIMIT 1
 		`, slug).Scan(
-			&item.ID, &item.PublicListingID, &item.Slug, &item.Title,
-			&item.Description, &item.PropertyTypeCode, &item.AccommodationModel, &item.UsageType,
+			&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.TitleEN,
+			&item.Description, &item.DescriptionEN, &item.PropertyTypeCode, &item.AccommodationModel, &item.UsageType,
 			&item.ListingType, &item.ListingScope, &item.SpaceTypeCode,
 			&item.ProjectName, &item.ProjectPublicID, &item.ProjectSlug,
-			&item.ProjectNameEN, &item.ProjectCategory, &item.BuildingName, &item.Address,
-			&item.Province, &item.District, &item.Subdistrict, &item.PostalCode,
-			&item.Road, &usableAreaSqm, &landAreaSqm,
+			&item.ProjectNameEN, &item.ProjectCategory, &item.BuildingName, &item.Address, &item.AddressEN,
+			&item.Province, &item.ProvinceEN, &item.District, &item.DistrictEN, &item.Subdistrict, &item.SubdistrictEN, &item.PostalCode,
+			&item.Road, &item.RoadEN, &usableAreaSqm, &landAreaSqm,
 			&bedroomCount, &bathroomCount, &parkingCount, &floorNo, &totalFloors,
 			&item.FurnishingStatus, &item.PropertyCondition, &item.OccupancyStatus,
 			&latitude, &longitude, &item.ContactName, &item.ContactPhone,
