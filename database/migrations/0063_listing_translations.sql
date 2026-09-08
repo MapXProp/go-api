@@ -26,32 +26,8 @@ CREATE TABLE IF NOT EXISTS public.listing_translations (
     CHECK (translation_source IN ('manual', 'ai_assisted', 'imported'))
 );
 
-CREATE OR REPLACE FUNCTION public.refresh_listing_translation_search_text()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    NEW.search_text := lower(concat_ws(' ', NEW.title, NEW.description,
-        NEW.address_line1, NEW.address_line2, NEW.road, NEW.subdistrict_name,
-        NEW.district_name, NEW.province_name));
-    NEW.updated_at := now();
-    RETURN NEW;
-END;
-$$;
-
-DROP TRIGGER IF EXISTS trg_listing_translations_search_text ON public.listing_translations;
-CREATE TRIGGER trg_listing_translations_search_text
-BEFORE INSERT OR UPDATE OF title, description, address_line1, address_line2, road,
-    subdistrict_name, district_name, province_name
-ON public.listing_translations
-FOR EACH ROW EXECUTE FUNCTION public.refresh_listing_translation_search_text();
-
 CREATE INDEX IF NOT EXISTS idx_listing_translations_locale_listing
     ON public.listing_translations(locale, listing_id)
-    WHERE translation_status = 'published';
-
-CREATE INDEX IF NOT EXISTS idx_listing_translations_search_text_trgm
-    ON public.listing_translations USING gin(search_text gin_trgm_ops)
     WHERE translation_status = 'published';
 
 WITH english (
@@ -273,13 +249,15 @@ Please contact HBD Event directly for pricing, booth dimensions, booth numbers, 
 INSERT INTO public.listing_translations (
     listing_id, locale, title, description, address_line1, road,
     subdistrict_name, district_name, province_name,
-    seo_title, seo_description, translation_status, translation_source, reviewed_at
+    seo_title, seo_description, translation_status, translation_source, reviewed_at, search_text
 )
 SELECT
     listing.id, 'en', english.title, english.description, english.address_line1, english.road,
     english.subdistrict_name, english.district_name, english.province_name,
     english.title, left(regexp_replace(english.description, E'[\\n\\r]+', ' ', 'g'), 320),
-    'published', 'ai_assisted', now()
+    'published', 'ai_assisted', now(),
+    lower(concat_ws(' ', english.title, english.description, english.address_line1,
+        english.road, english.subdistrict_name, english.district_name, english.province_name))
 FROM english
 JOIN public.listings listing ON listing.slug = english.slug
 ON CONFLICT (listing_id, locale) DO UPDATE SET
@@ -295,41 +273,7 @@ ON CONFLICT (listing_id, locale) DO UPDATE SET
     translation_status = EXCLUDED.translation_status,
     translation_source = EXCLUDED.translation_source,
     reviewed_at = EXCLUDED.reviewed_at,
+    search_text = EXCLUDED.search_text,
     updated_at = now();
-
-UPDATE public.listing_content_blocks block
-SET
-    heading_en = 'Land highlights',
-    content = jsonb_build_array(
-        jsonb_build_object(
-            'title_th', block.content->0->>'title_th',
-            'body_th', block.content->0->>'body_th',
-            'title_en', 'Large central Bangkok land plot',
-            'body_en', 'A total of 700 sq.wah across two adjoining plots, offered together.'
-        ),
-        jsonb_build_object(
-            'title_th', block.content->1->>'title_th',
-            'body_th', block.content->1->>'body_th',
-            'title_en', 'Approximately 87 meters of combined road frontage',
-            'body_en', 'Both plots front the road within the private soi; see the listing images for the plot configuration.'
-        ),
-        jsonb_build_object(
-            'title_th', block.content->2->>'title_th',
-            'body_th', block.content->2->>'body_th',
-            'title_en', 'Quiet and private surroundings',
-            'body_en', 'Surrounded by residences and large homes, and best suited to buyers who travel by car.'
-        ),
-        jsonb_build_object(
-            'title_th', block.content->3->>'title_th',
-            'body_th', block.content->3->>'body_th',
-            'title_en', 'Convenient connections to several districts',
-            'body_en', 'Easy access to Sutthisan, Ratchadaphisek, Lat Phrao, and Rama IX.'
-        )
-    ),
-    updated_at = now()
-FROM public.listings listing
-WHERE block.listing_id = listing.id
-  AND listing.slug = 'land-for-sale-sutthisan-700-sq-wah'
-  AND block.block_code = 'land_highlights';
 
 COMMIT;
