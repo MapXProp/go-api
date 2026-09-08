@@ -31,16 +31,27 @@ func DeleteMyListing(db *sql.DB) fiber.Handler {
 		defer tx.Rollback()
 
 		var (
-			listingID int64
-			deletedAt sql.NullTime
+			listingID      int64
+			deletedAt      sql.NullTime
+			organizationID sql.NullInt64
 		)
 		err = tx.QueryRowContext(ctx, `
-			SELECT id, deleted_at
-			FROM public.listings
-			WHERE public_listing_id::text = $1
-			  AND user_id = $2
+			SELECT l.id, l.deleted_at, l.organization_id
+			FROM public.listings l
+			WHERE l.public_listing_id::text = $1
+			  AND (
+				(l.organization_id IS NULL AND l.user_id = $2)
+				OR EXISTS (
+					SELECT 1
+					FROM public.organization_memberships membership
+					WHERE membership.organization_id = l.organization_id
+					  AND membership.user_id = $2
+					  AND membership.status = 'active'
+					  AND membership.role_code IN ('owner', 'admin')
+				)
+			  )
 			FOR UPDATE
-		`, publicListingID, claims.UID).Scan(&listingID, &deletedAt)
+		`, publicListingID, claims.UID).Scan(&listingID, &deletedAt, &organizationID)
 		if err == sql.ErrNoRows {
 			// Deliberately do not reveal whether a listing belongs to somebody else.
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "listing not found"})
@@ -56,9 +67,8 @@ func DeleteMyListing(db *sql.DB) fiber.Handler {
 				UPDATE public.listings
 				SET deleted_at = now(), updated_at = now()
 				WHERE id = $1
-				  AND user_id = $2
 				  AND deleted_at IS NULL
-			`, listingID, claims.UID)
+			`, listingID)
 			if err != nil {
 				fmt.Println("Soft delete listing error:", err)
 				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot delete listing"})
@@ -66,6 +76,11 @@ func DeleteMyListing(db *sql.DB) fiber.Handler {
 			rowsAffected, err := result.RowsAffected()
 			if err != nil || rowsAffected != 1 {
 				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot delete listing"})
+			}
+			if organizationID.Valid {
+				if err := recordOrganizationAudit(ctx, tx, organizationID.Int64, claims.UID, "listing.deleted", "listing", publicListingID, nil); err != nil {
+					return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot delete listing"})
+				}
 			}
 		}
 

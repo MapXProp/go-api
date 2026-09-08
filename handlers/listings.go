@@ -24,6 +24,7 @@ const (
 type createListingRequest struct {
 	SubmissionKey           string                   `json:"submission_key"`
 	EditingPublicListingID  string                   `json:"editing_public_listing_id"`
+	OrganizationPublicID    string                   `json:"organization_public_id"`
 	ReplaceMedia            bool                     `json:"replace_media"`
 	DiscoveryChannelCode    string                   `json:"discovery_channel_code"`
 	PropertyGroupCode       string                   `json:"property_group_code"`
@@ -147,14 +148,6 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
 		replaceMedia := req.EditingPublicListingID == "" || req.ReplaceMedia
-		if replaceMedia {
-			if err := req.validateMediaOwnership(claims.UID); err != nil {
-				return c.Status(400).JSON(fiber.Map{"error": err.Error()})
-			}
-		}
-		if err := req.validateFloorPlanOwnership(claims.UID); err != nil {
-			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
-		}
 
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
@@ -162,22 +155,62 @@ func CreateListing(db *sql.DB) fiber.Handler {
 		}
 		defer tx.Rollback()
 
+		listingOwnerUserID := claims.UID
+		var existingListingID int64
+		var organizationID any
+
 		if req.EditingPublicListingID != "" {
-			var existingSubmissionKey string
+			var (
+				existingSubmissionKey string
+				existingUserID        int64
+				existingOrganization  sql.NullInt64
+			)
 			err := tx.QueryRowContext(ctx, `
-				SELECT COALESCE(submission_key, '')
+				SELECT id, COALESCE(submission_key, ''), user_id, organization_id
 				FROM public.listings
 				WHERE public_listing_id::text = $1
-					AND user_id = $2
 					AND deleted_at IS NULL
 				FOR UPDATE
-			`, req.EditingPublicListingID, claims.UID).Scan(&existingSubmissionKey)
+			`, req.EditingPublicListingID).Scan(&existingListingID, &existingSubmissionKey, &existingUserID, &existingOrganization)
 			if err == sql.ErrNoRows {
 				return c.Status(404).JSON(fiber.Map{"error": "listing to edit was not found"})
 			}
 			if err != nil {
 				fmt.Println("Resolve Listing Edit Error:", err)
 				return c.Status(500).JSON(fiber.Map{"error": "cannot prepare listing update"})
+			}
+			listingOwnerUserID = existingUserID
+			if existingOrganization.Valid {
+				var existingOrganizationPublicID, membershipRole string
+				err := tx.QueryRowContext(ctx, `
+					SELECT o.public_organization_id::text, m.role_code
+					FROM public.organizations o
+					JOIN public.organization_memberships m ON m.organization_id = o.id
+					WHERE o.id = $1
+					  AND m.user_id = $2
+					  AND m.status = 'active'
+					  AND o.is_active = true
+					  AND o.deleted_at IS NULL
+				`, existingOrganization.Int64, claims.UID).Scan(&existingOrganizationPublicID, &membershipRole)
+				if err == sql.ErrNoRows {
+					return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "listing to edit was not found"})
+				}
+				if err != nil {
+					fmt.Println("Resolve Listing Organization Access Error:", err)
+					return c.Status(500).JSON(fiber.Map{"error": "cannot prepare listing update"})
+				}
+				if !organizationRoleAtLeast(membershipRole, "publisher") {
+					return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "listing to edit was not found"})
+				}
+				if req.OrganizationPublicID != "" && req.OrganizationPublicID != existingOrganizationPublicID {
+					return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "listing organization cannot be changed while editing"})
+				}
+				req.OrganizationPublicID = existingOrganizationPublicID
+				organizationID = existingOrganization.Int64
+			} else if existingUserID != claims.UID {
+				return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "listing to edit was not found"})
+			} else if req.OrganizationPublicID != "" {
+				return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "an individual listing cannot be moved into an organization while editing"})
 			}
 
 			if existingSubmissionKey == "" {
@@ -186,13 +219,30 @@ func CreateListing(db *sql.DB) fiber.Handler {
 					UPDATE public.listings
 					SET submission_key = $1
 					WHERE public_listing_id::text = $2
-						AND user_id = $3
-				`, existingSubmissionKey, req.EditingPublicListingID, claims.UID); err != nil {
+				`, existingSubmissionKey, req.EditingPublicListingID); err != nil {
 					fmt.Println("Prepare Listing Edit Key Error:", err)
 					return c.Status(500).JSON(fiber.Map{"error": "cannot prepare listing update"})
 				}
 			}
 			req.SubmissionKey = existingSubmissionKey
+		} else if req.OrganizationPublicID != "" {
+			access, err := loadOrganizationAccess(ctx, tx, req.OrganizationPublicID, claims.UID)
+			if err != nil {
+				return organizationAccessError(c, err)
+			}
+			if !organizationRoleAtLeast(access.RoleCode, "publisher") {
+				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "organization publisher permission required"})
+			}
+			organizationID = access.OrganizationID
+		}
+
+		if replaceMedia {
+			if err := req.validateMediaOwnershipForListing(ctx, tx, claims.UID, existingListingID); err != nil {
+				return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+			}
+		}
+		if err := req.validateFloorPlanOwnershipForListing(ctx, tx, claims.UID, existingListingID); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
 
 		var (
@@ -218,7 +268,7 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				is_sublease, owner_permission_required, source_channel, listing_scope, accommodation_model,
 				contact_phone_secondary, instagram_handle,
 				road, province_name, district_name, subdistrict_name,
-				submission_key
+				submission_key, organization_id, created_by_user_id, published_by_user_id
 			) VALUES (
 				$1, $2, $3, $4,
 				$5, $6, $7, $8,
@@ -236,7 +286,7 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				$43, $44, 'web', $45, $46,
 				$47, $48,
 				$49, $50, $51, $52,
-				$53
+				$53, $54, $55, $56
 			)
 			ON CONFLICT (user_id, submission_key) WHERE submission_key IS NOT NULL DO UPDATE SET
 				property_type_code = EXCLUDED.property_type_code,
@@ -298,11 +348,13 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				province_name = EXCLUDED.province_name,
 				district_name = EXCLUDED.district_name,
 				subdistrict_name = EXCLUDED.subdistrict_name,
+				organization_id = EXCLUDED.organization_id,
+				published_by_user_id = EXCLUDED.published_by_user_id,
 				updated_at = now()
 			WHERE public.listings.deleted_at IS NULL
 			RETURNING id, public_listing_id::text
 		`,
-			claims.UID,
+			listingOwnerUserID,
 			req.PropertyTypeCode,
 			req.UsageType,
 			req.ListingType,
@@ -355,6 +407,9 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			listingNullString(req.DistrictName),
 			listingNullString(req.SubdistrictName),
 			listingNullString(req.SubmissionKey),
+			organizationID,
+			claims.UID,
+			claims.UID,
 		).Scan(&listingID, &publicListingID)
 		if err == sql.ErrNoRows {
 			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "listing submission is no longer available"})
@@ -420,13 +475,15 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				INSERT INTO public.listing_contact_profiles (
 					listing_id, role_code, authority_source_code,
 					organization_name, organization_registration_no,
-					verification_status
-				) VALUES ($1, $2, $3, $4, $5, 'unverified')
+					verification_status, organization_id, contact_user_id
+				) VALUES ($1, $2, $3, $4, $5, 'unverified', $6, $7)
 				ON CONFLICT (listing_id) DO UPDATE SET
 					role_code = EXCLUDED.role_code,
 					authority_source_code = EXCLUDED.authority_source_code,
 					organization_name = EXCLUDED.organization_name,
 					organization_registration_no = EXCLUDED.organization_registration_no,
+					organization_id = EXCLUDED.organization_id,
+					contact_user_id = EXCLUDED.contact_user_id,
 					verification_status = 'unverified',
 					verification_note = NULL,
 					verified_at = NULL,
@@ -438,6 +495,8 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				req.ContactAuthorityCode,
 				listingNullString(req.ContactOrganizationName),
 				listingNullString(req.ContactOrganizationNo),
+				organizationID,
+				claims.UID,
 			); err != nil {
 				fmt.Println("Create Listing Contact Profile Error:", err)
 				return c.Status(500).JSON(fiber.Map{"error": "cannot create listing contact profile"})
@@ -717,12 +776,13 @@ func CreateListing(db *sql.DB) fiber.Handler {
 		}
 
 		return c.Status(201).JSON(fiber.Map{
-			"success":           true,
-			"id":                listingID,
-			"public_listing_id": publicListingID,
-			"slug":              slug,
-			"status":            "active",
-			"moderation_status": "approved",
+			"success":                true,
+			"id":                     listingID,
+			"public_listing_id":      publicListingID,
+			"slug":                   slug,
+			"status":                 "active",
+			"moderation_status":      "approved",
+			"organization_public_id": req.OrganizationPublicID,
 		})
 	}
 }
@@ -818,6 +878,7 @@ func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req 
 func (req *createListingRequest) normalize() {
 	req.SubmissionKey = strings.TrimSpace(req.SubmissionKey)
 	req.EditingPublicListingID = strings.TrimSpace(req.EditingPublicListingID)
+	req.OrganizationPublicID = strings.TrimSpace(req.OrganizationPublicID)
 	req.DiscoveryChannelCode = cleanCode(req.DiscoveryChannelCode, "")
 	req.PropertyGroupCode = cleanCode(req.PropertyGroupCode, "residential")
 	req.PropertyTypeCode = cleanCode(req.PropertyTypeCode, "condo")
@@ -1304,6 +1365,43 @@ func (req createListingRequest) validateMediaOwnership(userID int64) error {
 	return nil
 }
 
+func (req createListingRequest) validateMediaOwnershipForListing(ctx context.Context, tx *sql.Tx, userID, listingID int64) error {
+	allowedExisting := make(map[string]bool)
+	if listingID > 0 {
+		rows, err := tx.QueryContext(ctx, `
+			SELECT COALESCE(NULLIF(file_url, ''), NULLIF(original_url, ''), '')
+			FROM public.listing_media
+			WHERE listing_id = $1 AND is_active = true AND deleted_at IS NULL
+		`, listingID)
+		if err != nil {
+			return fmt.Errorf("cannot verify existing listing media")
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var mediaURL string
+			if err := rows.Scan(&mediaURL); err != nil {
+				return fmt.Errorf("cannot verify existing listing media")
+			}
+			if mediaURL != "" {
+				allowedExisting[mediaURL] = true
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("cannot verify existing listing media")
+		}
+	}
+
+	for _, media := range req.MediaItems {
+		if allowedExisting[media.URL] {
+			continue
+		}
+		if err := (createListingRequest{MediaItems: []listingMediaInput{media}}).validateMediaOwnership(userID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (req createListingRequest) validateFloorPlanOwnership(userID int64) error {
 	if req.EventFloorPlanURL == "" {
 		return nil
@@ -1327,6 +1425,25 @@ func (req createListingRequest) validateFloorPlanOwnership(userID int64) error {
 		return fmt.Errorf("event floor plan must be a JPG, PNG, or WebP image")
 	}
 	return nil
+}
+
+func (req createListingRequest) validateFloorPlanOwnershipForListing(ctx context.Context, tx *sql.Tx, userID, listingID int64) error {
+	if req.EventFloorPlanURL == "" || listingID == 0 {
+		return req.validateFloorPlanOwnership(userID)
+	}
+	var existingURL string
+	err := tx.QueryRowContext(ctx, `
+		SELECT COALESCE(floor_plan_url, '')
+		FROM public.listing_event_details
+		WHERE listing_id = $1
+	`, listingID).Scan(&existingURL)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("cannot verify existing event floor plan")
+	}
+	if req.EventFloorPlanURL == existingURL {
+		return nil
+	}
+	return req.validateFloorPlanOwnership(userID)
 }
 
 func (req createListingRequest) businessAllowsCooking() bool {

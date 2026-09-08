@@ -46,6 +46,7 @@ func GetMyListingEditDraft(db *sql.DB) fiber.Handler {
 				l.id,
 				COALESCE(l.submission_key, ''),
 				COALESCE(pt.group_code, 'residential'),
+				COALESCE(o.public_organization_id::text, ''),
 				l.property_type_code,
 				COALESCE(l.accommodation_model, ''),
 				l.listing_scope,
@@ -103,16 +104,28 @@ func GetMyListingEditDraft(db *sql.DB) fiber.Handler {
 				COALESCE((lcd.details->>'price_on_request')::boolean, false)
 			FROM public.listings l
 			LEFT JOIN public.property_types pt ON pt.code = l.property_type_code
+			LEFT JOIN public.organizations o ON o.id = l.organization_id
 			LEFT JOIN public.listing_category_details lcd ON lcd.listing_id = l.id
 			LEFT JOIN public.listing_contact_profiles lcp ON lcp.listing_id = l.id
 			WHERE l.public_listing_id::text = $1
-				AND l.user_id = $2
+				AND (
+					(l.organization_id IS NULL AND l.user_id = $2)
+					OR EXISTS (
+						SELECT 1
+						FROM public.organization_memberships membership
+						WHERE membership.organization_id = l.organization_id
+						  AND membership.user_id = $2
+						  AND membership.status = 'active'
+						  AND membership.role_code IN ('owner', 'admin', 'publisher')
+					)
+				)
 				AND l.deleted_at IS NULL
 			LIMIT 1
 		`, publicListingID, claims.UID).Scan(
 			&listingID,
 			&submissionKey,
 			&propertyGroupCode,
+			&req.OrganizationPublicID,
 			&req.PropertyTypeCode,
 			&req.AccommodationModel,
 			&req.ListingScope,
@@ -181,6 +194,7 @@ func GetMyListingEditDraft(db *sql.DB) fiber.Handler {
 		putDraftText(draft, "editingPublicListingId", publicListingID)
 		putDraftText(draft, "submissionKey", submissionKey)
 		putDraftText(draft, "draftOwnerPublicUserId", claims.Sub)
+		putDraftText(draft, "organizationPublicId", req.OrganizationPublicID)
 		putDraftText(draft, "property_group_code", propertyGroupCode)
 		putDraftText(draft, "property_type_code", req.PropertyTypeCode)
 		putDraftText(draft, "accommodation_model", req.AccommodationModel)

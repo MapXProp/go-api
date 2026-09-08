@@ -25,23 +25,31 @@ type changeMyPasswordRequest struct {
 }
 
 type myListingResponse struct {
-	ID                 int64      `json:"id"`
-	PublicListingID    string     `json:"public_listing_id"`
-	Slug               string     `json:"slug"`
-	Title              string     `json:"title"`
-	PropertyTypeCode   string     `json:"property_type_code"`
-	AccommodationModel string     `json:"accommodation_model"`
-	ListingType        string     `json:"listing_type"`
-	ListingStatus      string     `json:"listing_status"`
-	ModerationStatus   string     `json:"moderation_status"`
-	Address            string     `json:"address"`
-	Price              *float64   `json:"price,omitempty"`
-	PriceUnit          string     `json:"price_unit"`
-	Currency           string     `json:"currency"`
-	PrimaryImageURL    string     `json:"primary_image_url"`
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
-	PublishedAt        *time.Time `json:"published_at,omitempty"`
+	ID                       int64      `json:"id"`
+	PublicListingID          string     `json:"public_listing_id"`
+	Slug                     string     `json:"slug"`
+	Title                    string     `json:"title"`
+	PropertyTypeCode         string     `json:"property_type_code"`
+	AccommodationModel       string     `json:"accommodation_model"`
+	ListingType              string     `json:"listing_type"`
+	ListingStatus            string     `json:"listing_status"`
+	ModerationStatus         string     `json:"moderation_status"`
+	Address                  string     `json:"address"`
+	Price                    *float64   `json:"price,omitempty"`
+	PriceUnit                string     `json:"price_unit"`
+	Currency                 string     `json:"currency"`
+	PrimaryImageURL          string     `json:"primary_image_url"`
+	OrganizationPublicID     string     `json:"organization_public_id,omitempty"`
+	OrganizationName         string     `json:"organization_name,omitempty"`
+	OrganizationVerification string     `json:"organization_verification_status,omitempty"`
+	OrganizationRole         string     `json:"organization_role_code,omitempty"`
+	CreatedByPublicUserID    string     `json:"created_by_public_user_id,omitempty"`
+	CreatedByName            string     `json:"created_by_name,omitempty"`
+	CanEdit                  bool       `json:"can_edit"`
+	CanDelete                bool       `json:"can_delete"`
+	CreatedAt                time.Time  `json:"created_at"`
+	UpdatedAt                time.Time  `json:"updated_at"`
+	PublishedAt              *time.Time `json:"published_at,omitempty"`
 }
 
 func authenticatedAccountRequest(c *fiber.Ctx, db *sql.DB) (*accessTokenClaims, context.Context, context.CancelFunc, error) {
@@ -231,6 +239,20 @@ func GetMyListings(db *sql.DB) fiber.Handler {
 				COALESCE(offer.price_unit, l.price_unit, ''),
 				COALESCE(offer.currency_code, 'THB'),
 				COALESCE(media.url, ''),
+				COALESCE(o.public_organization_id::text, ''),
+				COALESCE(o.display_name, ''),
+				COALESCE(o.verification_status, ''),
+				COALESCE(current_membership.role_code, ''),
+				COALESCE(creator.public_user_id::text, ''),
+				trim(concat_ws(' ', NULLIF(creator.name, ''), NULLIF(creator.surname, ''))),
+				CASE
+					WHEN l.organization_id IS NULL THEN l.user_id = $1
+					ELSE current_membership.role_code IN ('owner', 'admin', 'publisher')
+				END,
+				CASE
+					WHEN l.organization_id IS NULL THEN l.user_id = $1
+					ELSE current_membership.role_code IN ('owner', 'admin')
+				END,
 				l.created_at,
 				l.updated_at,
 				l.published_at
@@ -263,7 +285,16 @@ func GetMyListings(db *sql.DB) fiber.Handler {
 				ORDER BY is_primary DESC, sort_order, id
 				LIMIT 1
 			) media ON true
-			WHERE l.user_id = $1
+			LEFT JOIN public.organizations o ON o.id = l.organization_id
+			LEFT JOIN public.auth_users creator ON creator.id = l.created_by_user_id
+			LEFT JOIN public.organization_memberships current_membership
+				ON current_membership.organization_id = l.organization_id
+				AND current_membership.user_id = $1
+				AND current_membership.status = 'active'
+			WHERE (
+				(l.organization_id IS NULL AND l.user_id = $1)
+				OR current_membership.id IS NOT NULL
+			)
 			  AND l.deleted_at IS NULL
 			ORDER BY l.updated_at DESC, l.id DESC
 			LIMIT 200
@@ -294,6 +325,14 @@ func GetMyListings(db *sql.DB) fiber.Handler {
 				&item.PriceUnit,
 				&item.Currency,
 				&item.PrimaryImageURL,
+				&item.OrganizationPublicID,
+				&item.OrganizationName,
+				&item.OrganizationVerification,
+				&item.OrganizationRole,
+				&item.CreatedByPublicUserID,
+				&item.CreatedByName,
+				&item.CanEdit,
+				&item.CanDelete,
 				&item.CreatedAt,
 				&item.UpdatedAt,
 				&publishedAt,

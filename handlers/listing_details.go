@@ -90,68 +90,73 @@ type listingEventResponse struct {
 }
 
 type listingDetailResponse struct {
-	ID                    int64                            `json:"id"`
-	PublicListingID       string                           `json:"public_listing_id"`
-	Slug                  string                           `json:"slug"`
-	Title                 string                           `json:"title"`
-	Description           string                           `json:"description"`
-	PropertyTypeCode      string                           `json:"property_type_code"`
-	AccommodationModel    string                           `json:"accommodation_model"`
-	UsageType             string                           `json:"usage_type"`
-	ListingType           string                           `json:"listing_type"`
-	ListingScope          string                           `json:"listing_scope"`
-	SpaceTypeCode         string                           `json:"space_type_code"`
-	SpaceTypeCodes        []string                         `json:"space_type_codes"`
-	AllowedBusinessTypes  []string                         `json:"allowed_business_types"`
-	ProjectName           string                           `json:"project_name"`
-	BuildingName          string                           `json:"building_name"`
-	Address               string                           `json:"address"`
-	Province              string                           `json:"province"`
-	District              string                           `json:"district"`
-	Subdistrict           string                           `json:"subdistrict"`
-	PostalCode            string                           `json:"postal_code"`
-	Road                  string                           `json:"road"`
-	UsableAreaSqm         *float64                         `json:"usable_area_sqm,omitempty"`
-	LandAreaSqm           *float64                         `json:"land_area_sqm,omitempty"`
-	BedroomCount          *int                             `json:"bedroom_count,omitempty"`
-	BathroomCount         *int                             `json:"bathroom_count,omitempty"`
-	ParkingCount          *int                             `json:"parking_count,omitempty"`
-	FloorNo               *int                             `json:"floor_no,omitempty"`
-	TotalFloors           *int                             `json:"total_floors,omitempty"`
-	FurnishingStatus      string                           `json:"furnishing_status"`
-	PropertyCondition     string                           `json:"property_condition"`
-	OccupancyStatus       string                           `json:"occupancy_status"`
-	Latitude              *float64                         `json:"latitude,omitempty"`
-	Longitude             *float64                         `json:"longitude,omitempty"`
-	ContactName           string                           `json:"contact_name"`
-	ContactPhone          string                           `json:"contact_phone"`
-	ContactPhoneSecondary string                           `json:"contact_phone_secondary"`
-	ContactEmail          string                           `json:"contact_email"`
-	LineID                string                           `json:"line_id"`
-	InstagramHandle       string                           `json:"instagram_handle"`
-	ContactRoleCode       string                           `json:"contact_role_code"`
-	ContactAuthorityCode  string                           `json:"contact_authority_code"`
-	ContactOrganization   string                           `json:"contact_organization_name"`
-	ContactVerification   string                           `json:"contact_verification_status"`
-	OfferType             string                           `json:"offer_type"`
-	OfferAmount           *float64                         `json:"offer_amount,omitempty"`
-	PriceUnit             string                           `json:"price_unit"`
-	PriceNegotiable       bool                             `json:"price_negotiable"`
-	Currency              string                           `json:"currency"`
-	DepositAmount         *float64                         `json:"deposit_amount,omitempty"`
-	AdvanceRentAmount     *float64                         `json:"advance_rent_amount,omitempty"`
-	MinimumContractMonths *int                             `json:"minimum_contract_months,omitempty"`
-	ServiceFeeMonthly     *float64                         `json:"service_fee_monthly,omitempty"`
-	Amenities             []string                         `json:"amenities"`
-	PublishedAt           *time.Time                       `json:"published_at,omitempty"`
-	ExpiresAt             *time.Time                       `json:"expires_at,omitempty"`
-	IsVerified            bool                             `json:"is_verified"`
-	CategoryDetails       map[string]any                   `json:"category_details"`
-	Media                 []listingMediaResponse           `json:"media"`
-	ContentBlocks         []listingContentBlockResponse    `json:"content_blocks"`
-	NearbyPlaces          []listingNearbyPlaceResponse     `json:"nearby_places"`
-	TransactionTerms      []listingTransactionTermResponse `json:"transaction_terms"`
-	Event                 *listingEventResponse            `json:"event,omitempty"`
+	ID                       int64                            `json:"id"`
+	PublicListingID          string                           `json:"public_listing_id"`
+	Slug                     string                           `json:"slug"`
+	Title                    string                           `json:"title"`
+	Description              string                           `json:"description"`
+	PropertyTypeCode         string                           `json:"property_type_code"`
+	AccommodationModel       string                           `json:"accommodation_model"`
+	UsageType                string                           `json:"usage_type"`
+	ListingType              string                           `json:"listing_type"`
+	ListingScope             string                           `json:"listing_scope"`
+	SpaceTypeCode            string                           `json:"space_type_code"`
+	SpaceTypeCodes           []string                         `json:"space_type_codes"`
+	AllowedBusinessTypes     []string                         `json:"allowed_business_types"`
+	ProjectName              string                           `json:"project_name"`
+	BuildingName             string                           `json:"building_name"`
+	Address                  string                           `json:"address"`
+	Province                 string                           `json:"province"`
+	District                 string                           `json:"district"`
+	Subdistrict              string                           `json:"subdistrict"`
+	PostalCode               string                           `json:"postal_code"`
+	Road                     string                           `json:"road"`
+	UsableAreaSqm            *float64                         `json:"usable_area_sqm,omitempty"`
+	LandAreaSqm              *float64                         `json:"land_area_sqm,omitempty"`
+	BedroomCount             *int                             `json:"bedroom_count,omitempty"`
+	BathroomCount            *int                             `json:"bathroom_count,omitempty"`
+	ParkingCount             *int                             `json:"parking_count,omitempty"`
+	FloorNo                  *int                             `json:"floor_no,omitempty"`
+	TotalFloors              *int                             `json:"total_floors,omitempty"`
+	FurnishingStatus         string                           `json:"furnishing_status"`
+	PropertyCondition        string                           `json:"property_condition"`
+	OccupancyStatus          string                           `json:"occupancy_status"`
+	Latitude                 *float64                         `json:"latitude,omitempty"`
+	Longitude                *float64                         `json:"longitude,omitempty"`
+	ContactName              string                           `json:"contact_name"`
+	ContactPhone             string                           `json:"contact_phone"`
+	ContactPhoneSecondary    string                           `json:"contact_phone_secondary"`
+	ContactEmail             string                           `json:"contact_email"`
+	LineID                   string                           `json:"line_id"`
+	InstagramHandle          string                           `json:"instagram_handle"`
+	ContactRoleCode          string                           `json:"contact_role_code"`
+	ContactAuthorityCode     string                           `json:"contact_authority_code"`
+	ContactOrganization      string                           `json:"contact_organization_name"`
+	ContactVerification      string                           `json:"contact_verification_status"`
+	OrganizationPublicID     string                           `json:"organization_public_id,omitempty"`
+	OrganizationName         string                           `json:"organization_name,omitempty"`
+	OrganizationVerification string                           `json:"organization_verification_status,omitempty"`
+	OrganizationWebsite      string                           `json:"organization_website_url,omitempty"`
+	OrganizationLogoURL      string                           `json:"organization_logo_url,omitempty"`
+	OfferType                string                           `json:"offer_type"`
+	OfferAmount              *float64                         `json:"offer_amount,omitempty"`
+	PriceUnit                string                           `json:"price_unit"`
+	PriceNegotiable          bool                             `json:"price_negotiable"`
+	Currency                 string                           `json:"currency"`
+	DepositAmount            *float64                         `json:"deposit_amount,omitempty"`
+	AdvanceRentAmount        *float64                         `json:"advance_rent_amount,omitempty"`
+	MinimumContractMonths    *int                             `json:"minimum_contract_months,omitempty"`
+	ServiceFeeMonthly        *float64                         `json:"service_fee_monthly,omitempty"`
+	Amenities                []string                         `json:"amenities"`
+	PublishedAt              *time.Time                       `json:"published_at,omitempty"`
+	ExpiresAt                *time.Time                       `json:"expires_at,omitempty"`
+	IsVerified               bool                             `json:"is_verified"`
+	CategoryDetails          map[string]any                   `json:"category_details"`
+	Media                    []listingMediaResponse           `json:"media"`
+	ContentBlocks            []listingContentBlockResponse    `json:"content_blocks"`
+	NearbyPlaces             []listingNearbyPlaceResponse     `json:"nearby_places"`
+	TransactionTerms         []listingTransactionTermResponse `json:"transaction_terms"`
+	Event                    *listingEventResponse            `json:"event,omitempty"`
 }
 
 func GetListingBySlug(db *sql.DB) fiber.Handler {
@@ -190,6 +195,8 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				COALESCE(l.contact_email, ''), COALESCE(l.line_id, ''), COALESCE(l.instagram_handle, ''),
 				COALESCE(lcp.role_code, ''), COALESCE(lcp.authority_source_code, ''),
 				COALESCE(lcp.organization_name, ''), COALESCE(lcp.verification_status, 'unverified'),
+				COALESCE(o.public_organization_id::text, ''), COALESCE(o.display_name, ''),
+				COALESCE(o.verification_status, ''), COALESCE(o.website_url, ''), COALESCE(o.logo_url, ''),
 				COALESCE(lo.offer_type, ''), lo.amount, COALESCE(lo.price_unit, l.price_unit, ''),
 				COALESCE(lo.currency_code, 'THB'), lo.deposit_amount, lo.advance_amount,
 				lo.minimum_contract_months, lo.service_fee_monthly, COALESCE(lo.is_negotiable, false),
@@ -204,6 +211,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			FROM public.listings l
 			LEFT JOIN public.listing_category_details lcd ON lcd.listing_id = l.id
 			LEFT JOIN public.listing_contact_profiles lcp ON lcp.listing_id = l.id
+			LEFT JOIN public.organizations o ON o.id = l.organization_id AND o.is_active = true AND o.deleted_at IS NULL
 			LEFT JOIN LATERAL (
 				SELECT offer_type, amount, price_unit, currency_code, deposit_amount,
 					advance_amount, minimum_contract_months, service_fee_monthly, is_negotiable
@@ -233,6 +241,8 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			&latitude, &longitude, &item.ContactName, &item.ContactPhone,
 			&item.ContactPhoneSecondary, &item.ContactEmail, &item.LineID, &item.InstagramHandle,
 			&item.ContactRoleCode, &item.ContactAuthorityCode, &item.ContactOrganization, &item.ContactVerification,
+			&item.OrganizationPublicID, &item.OrganizationName, &item.OrganizationVerification,
+			&item.OrganizationWebsite, &item.OrganizationLogoURL,
 			&item.OfferType, &amount, &item.PriceUnit, &item.Currency,
 			&depositAmount, &advanceAmount, &minimumContractMonths, &serviceFee, &item.PriceNegotiable,
 			&publishedAt, &expiresAt, &item.IsVerified, &rawCategoryDetails,
