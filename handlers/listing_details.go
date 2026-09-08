@@ -104,6 +104,10 @@ type listingDetailResponse struct {
 	SpaceTypeCodes           []string                         `json:"space_type_codes"`
 	AllowedBusinessTypes     []string                         `json:"allowed_business_types"`
 	ProjectName              string                           `json:"project_name"`
+	ProjectPublicID          string                           `json:"project_public_id,omitempty"`
+	ProjectSlug              string                           `json:"project_slug,omitempty"`
+	ProjectNameEN            string                           `json:"project_name_en,omitempty"`
+	ProjectCategory          string                           `json:"project_category,omitempty"`
 	BuildingName             string                           `json:"building_name"`
 	Address                  string                           `json:"address"`
 	Province                 string                           `json:"province"`
@@ -183,7 +187,10 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				l.id, l.public_listing_id::text, COALESCE(l.slug, ''), l.title,
 				COALESCE(l.description, ''), l.property_type_code, COALESCE(l.accommodation_model, ''), l.usage_type,
 				l.listing_type, l.listing_scope, COALESCE(l.space_type_code, ''),
-				COALESCE(l.custom_project_name, ''), COALESCE(l.custom_building_name, ''),
+				COALESCE(project.name_th, l.custom_project_name, ''),
+				COALESCE(project.public_project_id::text, ''), COALESCE(project.slug, ''),
+				COALESCE(project.name_en, ''), COALESCE(project.project_category, ''),
+				COALESCE(l.custom_building_name, ''),
 				trim(concat_ws(' ', l.address_line1, l.address_line2)),
 				COALESCE(l.province_name, ''), COALESCE(l.district_name, ''),
 				COALESCE(l.subdistrict_name, ''), COALESCE(l.postal_code, ''),
@@ -212,6 +219,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			LEFT JOIN public.listing_category_details lcd ON lcd.listing_id = l.id
 			LEFT JOIN public.listing_contact_profiles lcp ON lcp.listing_id = l.id
 			LEFT JOIN public.organizations o ON o.id = l.organization_id AND o.is_active = true AND o.deleted_at IS NULL
+			LEFT JOIN public.property_projects project ON project.id = l.project_id AND project.is_active = true AND project.deleted_at IS NULL
 			LEFT JOIN LATERAL (
 				SELECT offer_type, amount, price_unit, currency_code, deposit_amount,
 					advance_amount, minimum_contract_months, service_fee_monthly, is_negotiable
@@ -233,7 +241,8 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			&item.ID, &item.PublicListingID, &item.Slug, &item.Title,
 			&item.Description, &item.PropertyTypeCode, &item.AccommodationModel, &item.UsageType,
 			&item.ListingType, &item.ListingScope, &item.SpaceTypeCode,
-			&item.ProjectName, &item.BuildingName, &item.Address,
+			&item.ProjectName, &item.ProjectPublicID, &item.ProjectSlug,
+			&item.ProjectNameEN, &item.ProjectCategory, &item.BuildingName, &item.Address,
 			&item.Province, &item.District, &item.Subdistrict, &item.PostalCode,
 			&item.Road, &usableAreaSqm, &landAreaSqm,
 			&bedroomCount, &bathroomCount, &parkingCount, &floorNo, &totalFloors,

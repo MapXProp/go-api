@@ -53,6 +53,8 @@ func SetupRoutes(app *fiber.App, db *sql.DB) {
 	api.Post("/organizations/:publicOrganizationID/transfer-ownership", handlers.TransferOrganizationOwnership(db))
 	api.Get("/organization-invitations/:token", handlers.GetOrganizationInvitation(db))
 	api.Post("/organization-invitations/:token/accept", handlers.AcceptOrganizationInvitation(db))
+	api.Get("/projects", handlers.ListPropertyProjects(db))
+	api.Get("/projects/:identifier", handlers.GetPropertyProject(db))
 	api.Post("/listings", handlers.CreateListing(db))
 	api.Get("/listings/:slug", handlers.GetListingBySlug(db))
 	api.Post("/listing-media", handlers.UploadListingMedia(db))

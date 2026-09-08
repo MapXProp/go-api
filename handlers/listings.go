@@ -25,6 +25,7 @@ type createListingRequest struct {
 	SubmissionKey           string                   `json:"submission_key"`
 	EditingPublicListingID  string                   `json:"editing_public_listing_id"`
 	OrganizationPublicID    string                   `json:"organization_public_id"`
+	ProjectPublicID         string                   `json:"project_public_id"`
 	ReplaceMedia            bool                     `json:"replace_media"`
 	DiscoveryChannelCode    string                   `json:"discovery_channel_code"`
 	PropertyGroupCode       string                   `json:"property_group_code"`
@@ -158,6 +159,7 @@ func CreateListing(db *sql.DB) fiber.Handler {
 		listingOwnerUserID := claims.UID
 		var existingListingID int64
 		var organizationID any
+		var projectID any
 
 		if req.EditingPublicListingID != "" {
 			var (
@@ -236,6 +238,52 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			organizationID = access.OrganizationID
 		}
 
+		if req.ProjectPublicID != "" {
+			var resolvedProjectID int64
+			err := tx.QueryRowContext(ctx, `
+				SELECT id
+				FROM public.property_projects
+				WHERE public_project_id::text = $1
+				  AND is_active = true
+				  AND deleted_at IS NULL
+				LIMIT 1
+			`, req.ProjectPublicID).Scan(&resolvedProjectID)
+			if err == sql.ErrNoRows {
+				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "project was not found"})
+			}
+			if err != nil {
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot resolve project"})
+			}
+			projectID = resolvedProjectID
+		} else if req.CustomProjectName != "" {
+			var resolvedProjectID int64
+			err := tx.QueryRowContext(ctx, `
+				SELECT project.id
+				FROM public.property_projects project
+				WHERE project.is_active = true
+				  AND project.deleted_at IS NULL
+				  AND (
+					public.normalize_project_search_name(project.name_th) = public.normalize_project_search_name($1)
+					OR public.normalize_project_search_name(COALESCE(project.name_en, '')) = public.normalize_project_search_name($1)
+					OR EXISTS (
+						SELECT 1
+						FROM public.property_project_aliases alias
+						WHERE alias.project_id = project.id
+						  AND alias.is_searchable = true
+						  AND alias.normalized_alias = public.normalize_project_search_name($1)
+					)
+				  )
+				ORDER BY project.id
+				LIMIT 1
+			`, req.CustomProjectName).Scan(&resolvedProjectID)
+			if err != nil && err != sql.ErrNoRows {
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot resolve project"})
+			}
+			if err == nil {
+				projectID = resolvedProjectID
+			}
+		}
+
 		if replaceMedia {
 			if err := req.validateMediaOwnershipForListing(ctx, tx, claims.UID, existingListingID); err != nil {
 				return c.Status(400).JSON(fiber.Map{"error": err.Error()})
@@ -268,7 +316,7 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				is_sublease, owner_permission_required, source_channel, listing_scope, accommodation_model,
 				contact_phone_secondary, instagram_handle,
 				road, province_name, district_name, subdistrict_name,
-				submission_key, organization_id, created_by_user_id, published_by_user_id
+				submission_key, organization_id, created_by_user_id, published_by_user_id, project_id
 			) VALUES (
 				$1, $2, $3, $4,
 				$5, $6, $7, $8,
@@ -286,7 +334,7 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				$43, $44, 'web', $45, $46,
 				$47, $48,
 				$49, $50, $51, $52,
-				$53, $54, $55, $56
+				$53, $54, $55, $56, $57
 			)
 			ON CONFLICT (user_id, submission_key) WHERE submission_key IS NOT NULL DO UPDATE SET
 				property_type_code = EXCLUDED.property_type_code,
@@ -350,6 +398,7 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				subdistrict_name = EXCLUDED.subdistrict_name,
 				organization_id = EXCLUDED.organization_id,
 				published_by_user_id = EXCLUDED.published_by_user_id,
+				project_id = EXCLUDED.project_id,
 				updated_at = now()
 			WHERE public.listings.deleted_at IS NULL
 			RETURNING id, public_listing_id::text
@@ -410,6 +459,7 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			organizationID,
 			claims.UID,
 			claims.UID,
+			projectID,
 		).Scan(&listingID, &publicListingID)
 		if err == sql.ErrNoRows {
 			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "listing submission is no longer available"})
@@ -964,6 +1014,7 @@ func (req *createListingRequest) normalize() {
 	req.Title = strings.TrimSpace(req.Title)
 	req.Description = strings.TrimSpace(req.Description)
 	req.CustomProjectName = strings.TrimSpace(req.CustomProjectName)
+	req.ProjectPublicID = strings.TrimSpace(req.ProjectPublicID)
 	req.CustomUnitNumber = strings.TrimSpace(req.CustomUnitNumber)
 	req.AddressLine1 = strings.TrimSpace(req.AddressLine1)
 	req.AddressLine2 = strings.TrimSpace(req.AddressLine2)

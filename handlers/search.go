@@ -70,6 +70,10 @@ type searchListing struct {
 	AccommodationModel string     `json:"accommodation_model"`
 	ListingType        string     `json:"listing_type"`
 	ProjectName        string     `json:"project_name"`
+	ProjectPublicID    string     `json:"project_public_id,omitempty"`
+	ProjectSlug        string     `json:"project_slug,omitempty"`
+	ProjectNameEN      string     `json:"project_name_en,omitempty"`
+	ProjectCategory    string     `json:"project_category,omitempty"`
 	Address            string     `json:"address"`
 	Province           string     `json:"province"`
 	District           string     `json:"district"`
@@ -656,6 +660,57 @@ func PropertySearchSuggestions(db *sql.DB) fiber.Handler {
 				WHERE lower(s.name_th) ILIKE '%' || $1 || '%' OR lower(s.name_en) ILIKE '%' || $1 || '%'
 
 				UNION ALL
+				SELECT 'project',
+					CASE WHEN $3 = 'en' AND NULLIF(p.name_en, '') IS NOT NULL THEN p.name_en ELSE p.name_th END,
+					p.project_category,
+					CASE WHEN $3 = 'en' AND NULLIF(p.name_en, '') IS NOT NULL THEN p.name_en ELSE p.name_th END,
+					110,
+					greatest(
+						similarity(lower(p.name_th), $1),
+						similarity(lower(COALESCE(p.name_en, '')), $1),
+						COALESCE(alias_score.score, 0::real)
+					),
+					CASE
+						WHEN public.normalize_project_search_name(p.name_th) = public.normalize_project_search_name($1)
+						  OR public.normalize_project_search_name(COALESCE(p.name_en, '')) = public.normalize_project_search_name($1)
+						  OR EXISTS (
+							SELECT 1 FROM public.property_project_aliases exact_alias
+							WHERE exact_alias.project_id = p.id
+							  AND exact_alias.is_searchable = true
+							  AND exact_alias.normalized_alias = public.normalize_project_search_name($1)
+						  ) THEN 4
+						WHEN lower(p.name_th) LIKE $1 || '%'
+						  OR lower(COALESCE(p.name_en, '')) LIKE $1 || '%' THEN 3
+						ELSE 1
+					END
+				FROM public.property_projects p
+				LEFT JOIN LATERAL (
+					SELECT max(greatest(
+						similarity(lower(alias.alias_name), $1),
+						similarity(alias.normalized_alias, public.normalize_project_search_name($1))
+					)) AS score
+					FROM public.property_project_aliases alias
+					WHERE alias.project_id = p.id AND alias.is_searchable = true
+				) alias_score ON true
+				WHERE p.is_active = true
+				  AND p.deleted_at IS NULL
+				  AND (
+					lower(p.name_th) ILIKE '%' || $1 || '%' OR
+					lower(COALESCE(p.name_en, '')) ILIKE '%' || $1 || '%' OR
+					public.normalize_project_search_name(p.name_th) LIKE '%' || public.normalize_project_search_name($1) || '%' OR
+					public.normalize_project_search_name(COALESCE(p.name_en, '')) LIKE '%' || public.normalize_project_search_name($1) || '%' OR
+					EXISTS (
+						SELECT 1 FROM public.property_project_aliases alias
+						WHERE alias.project_id = p.id
+						  AND alias.is_searchable = true
+						  AND (
+							lower(alias.alias_name) ILIKE '%' || $1 || '%' OR
+							alias.normalized_alias LIKE '%' || public.normalize_project_search_name($1) || '%'
+						  )
+					)
+				  )
+
+				UNION ALL
 				SELECT 'location', place.name, place.kind, place.name, place.priority,
 					similarity(lower(place.name), $1),
 					CASE
@@ -909,7 +964,29 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			where = append(where, "EXISTS (SELECT 1 FROM public.listing_offers lo WHERE "+strings.Join(parts, " AND ")+")")
 		}
 		if intent.FreeText != "" {
-			where = append(where, "l.search_text ILIKE "+arg("%"+intent.FreeText+"%"))
+			freeTextPatternArg := arg("%" + intent.FreeText + "%")
+			freeTextArg := arg(intent.FreeText)
+			where = append(where, `(l.search_text ILIKE `+freeTextPatternArg+` OR EXISTS (
+				SELECT 1
+				FROM public.property_projects project
+				WHERE project.id = l.project_id
+				  AND project.is_active = true
+				  AND project.deleted_at IS NULL
+				  AND (
+					project.search_text ILIKE `+freeTextPatternArg+` OR
+					public.normalize_project_search_name(project.name_th) LIKE '%' || public.normalize_project_search_name(`+freeTextArg+`) || '%' OR
+					public.normalize_project_search_name(COALESCE(project.name_en, '')) LIKE '%' || public.normalize_project_search_name(`+freeTextArg+`) || '%' OR
+					EXISTS (
+						SELECT 1 FROM public.property_project_aliases alias
+						WHERE alias.project_id = project.id
+						  AND alias.is_searchable = true
+						  AND (
+							lower(alias.alias_name) ILIKE `+freeTextPatternArg+` OR
+							alias.normalized_alias LIKE '%' || public.normalize_project_search_name(`+freeTextArg+`) || '%'
+						  )
+					)
+				  )
+			))`)
 		}
 		if bounds != nil {
 			where = append(where,
@@ -925,11 +1002,25 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		orderBy := "l.published_at DESC"
 		if intent.Normalized != "" {
 			queryArg := arg(intent.Normalized)
-			orderBy = "similarity(l.search_text, " + queryArg + ") DESC, l.published_at DESC"
+			orderBy = `greatest(
+				similarity(l.search_text, ` + queryArg + `),
+				COALESCE(similarity(project.search_text, ` + queryArg + `), 0::real),
+				COALESCE((
+					SELECT max(greatest(
+						similarity(lower(project_alias.alias_name), ` + queryArg + `),
+						similarity(project_alias.normalized_alias, public.normalize_project_search_name(` + queryArg + `))
+					))
+					FROM public.property_project_aliases project_alias
+					WHERE project_alias.project_id = l.project_id AND project_alias.is_searchable = true
+				), 0::real)
+			) DESC, l.published_at DESC`
 		}
 		sqlQuery := `SELECT l.id, l.public_listing_id::text, COALESCE(l.slug,''), l.title,
 			COALESCE(l.description,''), l.property_type_code, COALESCE(l.accommodation_model,''), l.listing_type,
-			COALESCE(l.custom_project_name,''), trim(concat_ws(' ',l.address_line1,l.address_line2)),
+			COALESCE(project.name_th,l.custom_project_name,''),
+			COALESCE(project.public_project_id::text,''), COALESCE(project.slug,''),
+			COALESCE(project.name_en,''), COALESCE(project.project_category,''),
+			trim(concat_ws(' ',l.address_line1,l.address_line2)),
 			COALESCE(l.province_name,''), COALESCE(l.district_name,''),
 			l.sale_price, l.rent_price_monthly, l.bedroom_count, l.bathroom_count,
 			l.usable_area_sqm, l.land_area_sqm, l.pet_allowed, l.latitude, l.longitude, l.published_at,
@@ -946,6 +1037,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			l.is_verified, COALESCE(ls.source_type,''),
 			count(*) OVER() AS total_count
 		FROM public.listings l
+		LEFT JOIN public.property_projects project ON project.id = l.project_id AND project.is_active = true AND project.deleted_at IS NULL
 		LEFT JOIN public.listing_category_details lcd ON lcd.listing_id = l.id
 		LEFT JOIN public.listing_event_details led ON led.listing_id = l.id
 		LEFT JOIN LATERAL (
@@ -1016,7 +1108,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			var sale, rent, area, landArea, lat, lng, offerAmount sql.NullFloat64
 			var beds, baths, temporarySpaceDays sql.NullInt64
 			var published, eventStartsOn, eventEndsOn sql.NullTime
-			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.Description, &item.PropertyTypeCode, &item.AccommodationModel, &item.ListingType, &item.ProjectName, &item.Address, &item.Province, &item.District, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, pq.Array(&item.ImageURLs), &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.OfferType, &offerAmount, &item.OfferPriceUnit, &temporarySpaceDays, &item.IsVerified, &item.SourceType, &total); err != nil {
+			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.Description, &item.PropertyTypeCode, &item.AccommodationModel, &item.ListingType, &item.ProjectName, &item.ProjectPublicID, &item.ProjectSlug, &item.ProjectNameEN, &item.ProjectCategory, &item.Address, &item.Province, &item.District, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, pq.Array(&item.ImageURLs), &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.OfferType, &offerAmount, &item.OfferPriceUnit, &temporarySpaceDays, &item.IsVerified, &item.SourceType, &total); err != nil {
 				return c.Status(500).JSON(fiber.Map{"error": "cannot read properties"})
 			}
 			if sale.Valid {

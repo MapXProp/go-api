@@ -47,6 +47,7 @@ func GetMyListingEditDraft(db *sql.DB) fiber.Handler {
 				COALESCE(l.submission_key, ''),
 				COALESCE(pt.group_code, 'residential'),
 				COALESCE(o.public_organization_id::text, ''),
+				COALESCE(project.public_project_id::text, ''),
 				l.property_type_code,
 				COALESCE(l.accommodation_model, ''),
 				l.listing_scope,
@@ -105,6 +106,7 @@ func GetMyListingEditDraft(db *sql.DB) fiber.Handler {
 			FROM public.listings l
 			LEFT JOIN public.property_types pt ON pt.code = l.property_type_code
 			LEFT JOIN public.organizations o ON o.id = l.organization_id
+			LEFT JOIN public.property_projects project ON project.id = l.project_id
 			LEFT JOIN public.listing_category_details lcd ON lcd.listing_id = l.id
 			LEFT JOIN public.listing_contact_profiles lcp ON lcp.listing_id = l.id
 			WHERE l.public_listing_id::text = $1
@@ -126,6 +128,7 @@ func GetMyListingEditDraft(db *sql.DB) fiber.Handler {
 			&submissionKey,
 			&propertyGroupCode,
 			&req.OrganizationPublicID,
+			&req.ProjectPublicID,
 			&req.PropertyTypeCode,
 			&req.AccommodationModel,
 			&req.ListingScope,
