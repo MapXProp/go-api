@@ -17,11 +17,24 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 const organizationInvitationTTL = 72 * time.Hour
 
 var organizationSlugSeparator = regexp.MustCompile(`-+`)
+var organizationIdentifierPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+var organizationTypes = map[string]bool{
+	"agency": true, "developer": true, "bank_npa": true, "asset_manager": true,
+	"property_company": true, "corporate": true, "team": true, "other": true,
+}
+
+var organizationSpecialties = map[string]bool{
+	"sale": true, "rent": true, "npa": true, "condo": true, "house": true,
+	"land": true, "commercial": true, "warehouse_factory": true,
+	"hotel_resort": true, "beachfront": true, "investment": true,
+}
 
 type organizationSummaryResponse struct {
 	PublicOrganizationID string     `json:"public_organization_id"`
@@ -35,6 +48,7 @@ type organizationSummaryResponse struct {
 	VerificationStatus   string     `json:"verification_status"`
 	VerificationNote     string     `json:"verification_note,omitempty"`
 	VerifiedAt           *time.Time `json:"verified_at,omitempty"`
+	SpecialtyCodes       []string   `json:"specialty_codes"`
 	RoleCode             string     `json:"role_code,omitempty"`
 	IsPrimaryOwner       bool       `json:"is_primary_owner,omitempty"`
 	MemberCount          int        `json:"member_count"`
@@ -84,19 +98,37 @@ type organizationInvitationResponse struct {
 }
 
 type createOrganizationRequest struct {
-	DisplayName      string `json:"display_name"`
-	LegalName        string `json:"legal_name"`
-	OrganizationType string `json:"organization_type"`
-	WebsiteURL       string `json:"website_url"`
+	DisplayName      string   `json:"display_name"`
+	LegalName        string   `json:"legal_name"`
+	OrganizationType string   `json:"organization_type"`
+	WebsiteURL       string   `json:"website_url"`
+	SpecialtyCodes   []string `json:"specialty_codes"`
 }
 
 type updateOrganizationRequest struct {
-	DisplayName      string `json:"display_name"`
-	LegalName        string `json:"legal_name"`
-	OrganizationType string `json:"organization_type"`
-	WebsiteURL       string `json:"website_url"`
-	LogoURL          string `json:"logo_url"`
-	Description      string `json:"description"`
+	DisplayName      string   `json:"display_name"`
+	LegalName        string   `json:"legal_name"`
+	OrganizationType string   `json:"organization_type"`
+	WebsiteURL       string   `json:"website_url"`
+	LogoURL          string   `json:"logo_url"`
+	Description      string   `json:"description"`
+	SpecialtyCodes   []string `json:"specialty_codes"`
+}
+
+type organizationListingResponse struct {
+	PublicListingID string     `json:"public_listing_id"`
+	Slug            string     `json:"slug"`
+	Title           string     `json:"title"`
+	PropertyType    string     `json:"property_type_code"`
+	ListingType     string     `json:"listing_type"`
+	Address         string     `json:"address"`
+	Province        string     `json:"province"`
+	District        string     `json:"district"`
+	OfferAmount     *float64   `json:"offer_amount,omitempty"`
+	PriceUnit       string     `json:"price_unit"`
+	Currency        string     `json:"currency"`
+	PrimaryImageURL string     `json:"primary_image_url"`
+	PublishedAt     *time.Time `json:"published_at,omitempty"`
 }
 
 type inviteOrganizationMemberRequest struct {
@@ -151,6 +183,11 @@ func GetMyOrganizations(db *sql.DB) fiber.Handler {
 				COALESCE(o.legal_name, ''), o.organization_type,
 				COALESCE(o.website_url, ''), COALESCE(o.logo_url, ''), COALESCE(o.description, ''),
 				o.verification_status, COALESCE(o.verification_note, ''), o.verified_at,
+				COALESCE((
+					SELECT array_agg(specialty.specialty_code ORDER BY specialty.specialty_code)
+					FROM public.organization_specialties specialty
+					WHERE specialty.organization_id = o.id
+				), '{}'::text[]),
 				m.role_code, m.is_primary_owner,
 				(SELECT count(*) FROM public.organization_memberships member
 				 WHERE member.organization_id = o.id AND member.status = 'active'),
@@ -177,6 +214,7 @@ func GetMyOrganizations(db *sql.DB) fiber.Handler {
 				&item.PublicOrganizationID, &item.Slug, &item.DisplayName,
 				&item.LegalName, &item.OrganizationType, &item.WebsiteURL, &item.LogoURL, &item.Description,
 				&item.VerificationStatus, &item.VerificationNote, &verifiedAt,
+				pq.Array(&item.SpecialtyCodes),
 				&item.RoleCode, &item.IsPrimaryOwner, &item.MemberCount, &item.ListingCount,
 			); err != nil {
 				return organizationDatabaseError(c, "cannot load organizations", err)
@@ -194,6 +232,167 @@ func GetMyOrganizations(db *sql.DB) fiber.Handler {
 	}
 }
 
+func ListOrganizations(db *sql.DB) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		organizationType := strings.ToLower(strings.TrimSpace(c.Query("organization_type")))
+		specialtyCode := strings.ToLower(strings.TrimSpace(c.Query("specialty")))
+		if organizationType != "" && !organizationTypes[organizationType] {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid organization type"})
+		}
+		if specialtyCode != "" && !organizationSpecialties[specialtyCode] {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid organization specialty"})
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		rows, err := db.QueryContext(ctx, `
+			SELECT
+				o.public_organization_id::text, o.slug, o.display_name,
+				COALESCE(o.legal_name, ''), o.organization_type,
+				COALESCE(o.website_url, ''), COALESCE(o.logo_url, ''), COALESCE(o.description, ''),
+				o.verification_status, o.verified_at,
+				COALESCE((
+					SELECT array_agg(specialty.specialty_code ORDER BY specialty.specialty_code)
+					FROM public.organization_specialties specialty
+					WHERE specialty.organization_id = o.id
+				), '{}'::text[]),
+				(SELECT count(*) FROM public.organization_memberships member
+				 WHERE member.organization_id = o.id AND member.status = 'active'),
+				(SELECT count(*) FROM public.listings listing
+				 WHERE listing.organization_id = o.id
+				   AND listing.is_active = true
+				   AND listing.deleted_at IS NULL
+				   AND listing.listing_status = 'active'
+				   AND listing.moderation_status = 'approved'
+				   AND listing.published_at IS NOT NULL
+				   AND (listing.expires_at IS NULL OR listing.expires_at > now()))
+			FROM public.organizations o
+			WHERE o.is_active = true
+			  AND o.deleted_at IS NULL
+			  AND ($1 = '' OR o.organization_type = $1)
+			  AND ($2 = '' OR EXISTS (
+				SELECT 1 FROM public.organization_specialties specialty
+				WHERE specialty.organization_id = o.id AND specialty.specialty_code = $2
+			  ))
+			ORDER BY CASE o.verification_status WHEN 'verified' THEN 0 WHEN 'contact_checked' THEN 1 ELSE 2 END,
+				o.display_name, o.id
+			LIMIT 200
+		`, organizationType, specialtyCode)
+		if err != nil {
+			return organizationDatabaseError(c, "cannot load organizations", err)
+		}
+		defer rows.Close()
+
+		organizations := make([]organizationSummaryResponse, 0)
+		for rows.Next() {
+			var item organizationSummaryResponse
+			var verifiedAt sql.NullTime
+			if err := rows.Scan(
+				&item.PublicOrganizationID, &item.Slug, &item.DisplayName,
+				&item.LegalName, &item.OrganizationType, &item.WebsiteURL, &item.LogoURL, &item.Description,
+				&item.VerificationStatus, &verifiedAt, pq.Array(&item.SpecialtyCodes),
+				&item.MemberCount, &item.ListingCount,
+			); err != nil {
+				return organizationDatabaseError(c, "cannot load organizations", err)
+			}
+			if verifiedAt.Valid {
+				item.VerifiedAt = &verifiedAt.Time
+			}
+			organizations = append(organizations, item)
+		}
+		if err := rows.Err(); err != nil {
+			return organizationDatabaseError(c, "cannot load organizations", err)
+		}
+		return c.JSON(fiber.Map{"organizations": organizations})
+	}
+}
+
+func GetOrganizationListings(db *sql.DB) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		identifier, err := normalizeOrganizationIdentifier(c.Params("publicOrganizationID"))
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+
+		var organizationID int64
+		err = db.QueryRowContext(ctx, `
+			SELECT id FROM public.organizations
+			WHERE (public_organization_id::text = $1 OR slug = $1)
+			  AND is_active = true AND deleted_at IS NULL
+			LIMIT 1
+		`, identifier).Scan(&organizationID)
+		if err == sql.ErrNoRows {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "organization not found"})
+		}
+		if err != nil {
+			return organizationDatabaseError(c, "cannot load organization listings", err)
+		}
+
+		rows, err := db.QueryContext(ctx, `
+			SELECT l.public_listing_id::text, l.slug, l.title, l.property_type_code,
+				COALESCE(l.listing_type, ''), COALESCE(l.address, ''),
+				COALESCE(l.province_name, ''), COALESCE(l.district_name, ''),
+				offer.amount, COALESCE(offer.price_unit, l.price_unit, ''),
+				COALESCE(offer.currency_code, 'THB'), COALESCE(media.url, ''), l.published_at
+			FROM public.listings l
+			LEFT JOIN LATERAL (
+				SELECT amount, price_unit, currency_code
+				FROM public.listing_offers
+				WHERE listing_id = l.id
+				ORDER BY CASE offer_type WHEN 'sale' THEN 0 WHEN 'rent' THEN 1 WHEN 'sublease' THEN 2 ELSE 3 END, id
+				LIMIT 1
+			) offer ON true
+			LEFT JOIN LATERAL (
+				SELECT COALESCE(NULLIF(file_url, ''), NULLIF(original_url, ''), '') AS url
+				FROM public.listing_media
+				WHERE listing_id = l.id AND is_active = true AND deleted_at IS NULL
+				ORDER BY is_primary DESC, sort_order, id
+				LIMIT 1
+			) media ON true
+			WHERE l.organization_id = $1
+			  AND l.is_active = true
+			  AND l.deleted_at IS NULL
+			  AND l.listing_status = 'active'
+			  AND l.moderation_status = 'approved'
+			  AND l.published_at IS NOT NULL
+			  AND (l.expires_at IS NULL OR l.expires_at > now())
+			ORDER BY l.published_at DESC, l.id DESC
+			LIMIT 100
+		`, organizationID)
+		if err != nil {
+			return organizationDatabaseError(c, "cannot load organization listings", err)
+		}
+		defer rows.Close()
+
+		listings := make([]organizationListingResponse, 0)
+		for rows.Next() {
+			var item organizationListingResponse
+			var offerAmount sql.NullFloat64
+			var publishedAt sql.NullTime
+			if err := rows.Scan(
+				&item.PublicListingID, &item.Slug, &item.Title, &item.PropertyType,
+				&item.ListingType, &item.Address, &item.Province, &item.District,
+				&offerAmount, &item.PriceUnit, &item.Currency, &item.PrimaryImageURL, &publishedAt,
+			); err != nil {
+				return organizationDatabaseError(c, "cannot load organization listings", err)
+			}
+			if offerAmount.Valid {
+				item.OfferAmount = &offerAmount.Float64
+			}
+			if publishedAt.Valid {
+				item.PublishedAt = &publishedAt.Time
+			}
+			listings = append(listings, item)
+		}
+		if err := rows.Err(); err != nil {
+			return organizationDatabaseError(c, "cannot load organization listings", err)
+		}
+		return c.JSON(fiber.Map{"listings": listings})
+	}
+}
+
 func CreateOrganization(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		claims, ctx, cancel, err := authenticatedAccountRequest(c, db)
@@ -207,6 +406,10 @@ func CreateOrganization(db *sql.DB) fiber.Handler {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid organization payload"})
 		}
 		if err := normalizeOrganizationProfile(&req.DisplayName, &req.LegalName, &req.OrganizationType, &req.WebsiteURL); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		}
+		specialtyCodes, err := normalizeOrganizationSpecialties(req.SpecialtyCodes)
+		if err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 		}
 
@@ -244,6 +447,14 @@ func CreateOrganization(db *sql.DB) fiber.Handler {
 		`, organizationID, claims.UID); err != nil {
 			return organizationDatabaseError(c, "cannot create organization", err)
 		}
+		for _, specialtyCode := range specialtyCodes {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO public.organization_specialties (organization_id, specialty_code)
+				VALUES ($1, $2)
+			`, organizationID, specialtyCode); err != nil {
+				return organizationDatabaseError(c, "cannot create organization", err)
+			}
+		}
 		if err := recordOrganizationAudit(ctx, tx, organizationID, claims.UID, "organization.created", "organization", publicID, map[string]any{"display_name": req.DisplayName}); err != nil {
 			return organizationDatabaseError(c, "cannot create organization", err)
 		}
@@ -261,9 +472,9 @@ func CreateOrganization(db *sql.DB) fiber.Handler {
 
 func GetOrganization(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		publicID := strings.TrimSpace(c.Params("publicOrganizationID"))
-		if _, err := uuid.Parse(publicID); err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid organization ID"})
+		identifier, err := normalizeOrganizationIdentifier(c.Params("publicOrganizationID"))
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -272,28 +483,36 @@ func GetOrganization(db *sql.DB) fiber.Handler {
 		var item organizationSummaryResponse
 		var organizationID int64
 		var verifiedAt sql.NullTime
-		err := db.QueryRowContext(ctx, `
+		err = db.QueryRowContext(ctx, `
 			SELECT o.id, o.public_organization_id::text, o.slug, o.display_name,
 				COALESCE(o.legal_name, ''), o.organization_type,
 				COALESCE(o.website_url, ''), COALESCE(o.logo_url, ''), COALESCE(o.description, ''),
 				o.verification_status, COALESCE(o.verification_note, ''), o.verified_at,
+				COALESCE((
+					SELECT array_agg(specialty.specialty_code ORDER BY specialty.specialty_code)
+					FROM public.organization_specialties specialty
+					WHERE specialty.organization_id = o.id
+				), '{}'::text[]),
 				(SELECT count(*) FROM public.organization_memberships member
 				 WHERE member.organization_id = o.id AND member.status = 'active'),
 				(SELECT count(*) FROM public.listings listing
 				 WHERE listing.organization_id = o.id
+				   AND listing.is_active = true
 				   AND listing.deleted_at IS NULL
 				   AND listing.listing_status = 'active'
 				   AND listing.moderation_status = 'approved'
-				   AND listing.published_at IS NOT NULL)
+				   AND listing.published_at IS NOT NULL
+				   AND (listing.expires_at IS NULL OR listing.expires_at > now()))
 			FROM public.organizations o
-			WHERE o.public_organization_id::text = $1
+			WHERE (o.public_organization_id::text = $1 OR o.slug = $1)
 			  AND o.is_active = true
 			  AND o.deleted_at IS NULL
 			LIMIT 1
-		`, publicID).Scan(
+		`, identifier).Scan(
 			&organizationID, &item.PublicOrganizationID, &item.Slug, &item.DisplayName,
 			&item.LegalName, &item.OrganizationType, &item.WebsiteURL, &item.LogoURL, &item.Description,
 			&item.VerificationStatus, &item.VerificationNote, &verifiedAt,
+			pq.Array(&item.SpecialtyCodes),
 			&item.MemberCount, &item.ListingCount,
 		)
 		if err == sql.ErrNoRows {
@@ -424,8 +643,18 @@ func UpdateOrganization(db *sql.DB) fiber.Handler {
 		if len([]rune(req.Description)) > 2000 || len(req.LogoURL) > 2000 {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "organization profile is too long"})
 		}
+		updateSpecialties := req.SpecialtyCodes != nil
+		specialtyCodes, err := normalizeOrganizationSpecialties(req.SpecialtyCodes)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		}
 
-		if _, err := db.ExecContext(ctx, `
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return organizationDatabaseError(c, "cannot update organization", err)
+		}
+		defer tx.Rollback()
+		if _, err := tx.ExecContext(ctx, `
 			UPDATE public.organizations
 			SET display_name = $1,
 				legal_name = NULLIF($2, ''),
@@ -438,7 +667,25 @@ func UpdateOrganization(db *sql.DB) fiber.Handler {
 		`, req.DisplayName, req.LegalName, req.OrganizationType, req.WebsiteURL, req.LogoURL, req.Description, access.OrganizationID); err != nil {
 			return organizationDatabaseError(c, "cannot update organization", err)
 		}
-		_ = recordOrganizationAudit(ctx, db, access.OrganizationID, claims.UID, "organization.updated", "organization", access.PublicOrganizationID, nil)
+		if updateSpecialties {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM public.organization_specialties WHERE organization_id = $1`, access.OrganizationID); err != nil {
+				return organizationDatabaseError(c, "cannot update organization", err)
+			}
+			for _, specialtyCode := range specialtyCodes {
+				if _, err := tx.ExecContext(ctx, `
+					INSERT INTO public.organization_specialties (organization_id, specialty_code)
+					VALUES ($1, $2)
+				`, access.OrganizationID, specialtyCode); err != nil {
+					return organizationDatabaseError(c, "cannot update organization", err)
+				}
+			}
+		}
+		if err := recordOrganizationAudit(ctx, tx, access.OrganizationID, claims.UID, "organization.updated", "organization", access.PublicOrganizationID, map[string]any{"specialty_codes": specialtyCodes}); err != nil {
+			return organizationDatabaseError(c, "cannot update organization", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return organizationDatabaseError(c, "cannot update organization", err)
+		}
 		return c.JSON(fiber.Map{"success": true})
 	}
 }
@@ -1006,11 +1253,7 @@ func normalizeOrganizationProfile(displayName, legalName, organizationType, webs
 	if len([]rune(*legalName)) > 240 {
 		return fmt.Errorf("organization legal name is too long")
 	}
-	allowedTypes := map[string]bool{
-		"agency": true, "developer": true, "bank_npa": true, "asset_manager": true,
-		"property_company": true, "corporate": true, "team": true, "other": true,
-	}
-	if !allowedTypes[*organizationType] {
+	if !organizationTypes[*organizationType] {
 		return fmt.Errorf("invalid organization type")
 	}
 	if *websiteURL != "" {
@@ -1020,6 +1263,40 @@ func normalizeOrganizationProfile(displayName, legalName, organizationType, webs
 		}
 	}
 	return nil
+}
+
+func normalizeOrganizationSpecialties(values []string) ([]string, error) {
+	if len(values) > len(organizationSpecialties) {
+		return nil, fmt.Errorf("too many organization specialties")
+	}
+	cleaned := make([]string, 0, len(values))
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		code := strings.ToLower(strings.TrimSpace(value))
+		if !organizationSpecialties[code] {
+			return nil, fmt.Errorf("invalid organization specialty")
+		}
+		if seen[code] {
+			continue
+		}
+		seen[code] = true
+		cleaned = append(cleaned, code)
+	}
+	return cleaned, nil
+}
+
+func normalizeOrganizationIdentifier(value string) (string, error) {
+	identifier := strings.ToLower(strings.TrimSpace(value))
+	if identifier == "" || len(identifier) > 140 {
+		return "", fmt.Errorf("invalid organization identifier")
+	}
+	if _, err := uuid.Parse(identifier); err == nil {
+		return identifier, nil
+	}
+	if !organizationIdentifierPattern.MatchString(identifier) {
+		return "", fmt.Errorf("invalid organization identifier")
+	}
+	return identifier, nil
 }
 
 func validateOrganizationContact(contact organizationContactInput) error {

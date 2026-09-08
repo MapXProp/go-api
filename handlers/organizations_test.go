@@ -63,3 +63,31 @@ func TestValidateOrganizationContact(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeOrganizationSpecialties(t *testing.T) {
+	got, err := normalizeOrganizationSpecialties([]string{" Condo ", "sale", "condo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "condo" || got[1] != "sale" {
+		t.Fatalf("unexpected specialties: %#v", got)
+	}
+	if _, err := normalizeOrganizationSpecialties([]string{"anything"}); err == nil {
+		t.Fatal("unknown specialty was accepted")
+	}
+}
+
+func TestNormalizeOrganizationIdentifier(t *testing.T) {
+	valid := []string{"kkppropify", "bank-npa", "b84e97c5-f08d-49e7-b87e-3dd454e22a6d"}
+	for _, input := range valid {
+		if _, err := normalizeOrganizationIdentifier(input); err != nil {
+			t.Fatalf("valid identifier %q returned %v", input, err)
+		}
+	}
+	invalid := []string{"", "../kkp", "KKP Propify", "องค์กร"}
+	for _, input := range invalid {
+		if _, err := normalizeOrganizationIdentifier(input); err == nil {
+			t.Fatalf("invalid identifier %q was accepted", input)
+		}
+	}
+}
