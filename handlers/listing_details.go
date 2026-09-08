@@ -304,6 +304,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot read listing details"})
 			}
 		}
+		hideInternalListingMetadata(item.CategoryDetails)
 		if amount.Valid {
 			item.OfferAmount = &amount.Float64
 		}
@@ -572,5 +573,16 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 		}
 
 		return c.JSON(item)
+	}
+}
+
+// Source and import provenance are retained for administrators in dedicated
+// database records. They are deliberately omitted from the public listing
+// payload so a source platform cannot be mistaken for the listing publisher.
+func hideInternalListingMetadata(details map[string]any) {
+	for key := range details {
+		if key == "data_provenance" || strings.HasPrefix(key, "source_") {
+			delete(details, key)
+		}
 	}
 }

@@ -30,7 +30,6 @@ type propertyProjectResponse struct {
 	Latitude               *float64 `json:"latitude,omitempty"`
 	Longitude              *float64 `json:"longitude,omitempty"`
 	OfficialWebsiteURL     string   `json:"official_website_url"`
-	SourceURL              string   `json:"source_url"`
 	VerificationStatus     string   `json:"verification_status"`
 	AmenityCodes           []string `json:"amenity_codes"`
 	ListingCount           int      `json:"listing_count"`
@@ -82,7 +81,6 @@ func ListPropertyProjects(db *sql.DB) fiber.Handler {
 				p.latitude,
 				p.longitude,
 				COALESCE(p.official_website_url, ''),
-				COALESCE(p.source_url, ''),
 				p.verification_status,
 				COALESCE(amenity_set.amenity_codes, ARRAY[]::text[]),
 				COALESCE(listing_set.listing_count, 0)
@@ -195,7 +193,6 @@ func GetPropertyProject(db *sql.DB) fiber.Handler {
 				p.latitude,
 				p.longitude,
 				COALESCE(p.official_website_url, ''),
-				COALESCE(p.source_url, ''),
 				p.verification_status,
 				COALESCE(amenity_set.amenity_codes, ARRAY[]::text[]),
 				COALESCE(listing_set.listing_count, 0)
@@ -268,7 +265,6 @@ func scanPropertyProject(scanner projectScanner) (propertyProjectResponse, error
 		&latitude,
 		&longitude,
 		&project.OfficialWebsiteURL,
-		&project.SourceURL,
 		&project.VerificationStatus,
 		pq.Array(&project.AmenityCodes),
 		&project.ListingCount,
