@@ -332,7 +332,11 @@ func GetOrganizationListings(db *sql.DB) fiber.Handler {
 
 		rows, err := db.QueryContext(ctx, `
 			SELECT l.public_listing_id::text, l.slug, l.title, l.property_type_code,
-				COALESCE(l.listing_type, ''), COALESCE(l.address, ''),
+				COALESCE(l.listing_type, ''), trim(concat_ws(', ',
+					NULLIF(l.custom_project_name, ''),
+					NULLIF(l.address_line1, ''),
+					NULLIF(l.address_line2, '')
+				)),
 				COALESCE(l.province_name, ''), COALESCE(l.district_name, ''),
 				offer.amount, COALESCE(offer.price_unit, l.price_unit, ''),
 				COALESCE(offer.currency_code, 'THB'), COALESCE(media.url, ''), l.published_at
