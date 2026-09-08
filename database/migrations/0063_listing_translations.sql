@@ -3,32 +3,40 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS public.listing_translations (
     id bigserial PRIMARY KEY,
     listing_id bigint NOT NULL REFERENCES public.listings(id) ON DELETE CASCADE,
-    locale varchar(8) NOT NULL,
+    language_code text NOT NULL,
     title text NOT NULL,
-    description text NOT NULL DEFAULT '',
-    address_line1 text NOT NULL DEFAULT '',
-    address_line2 text NOT NULL DEFAULT '',
-    road text NOT NULL DEFAULT '',
-    subdistrict_name text NOT NULL DEFAULT '',
-    district_name text NOT NULL DEFAULT '',
-    province_name text NOT NULL DEFAULT '',
-    seo_title text NOT NULL DEFAULT '',
-    seo_description text NOT NULL DEFAULT '',
-    translation_status varchar(24) NOT NULL DEFAULT 'draft',
-    translation_source varchar(24) NOT NULL DEFAULT 'manual',
-    reviewed_at timestamptz,
+    description text,
+    short_description text,
+    seo_title text,
+    seo_description text,
+    translation_source text NOT NULL DEFAULT 'manual',
+    translation_status text NOT NULL DEFAULT 'published',
+    translated_by_user_id bigint,
+    notes text,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
-    search_text text NOT NULL DEFAULT '',
-    UNIQUE (listing_id, locale),
-    CHECK (locale = lower(locale) AND locale ~ '^[a-z]{2}(-[a-z0-9]{2,8})?$'),
-    CHECK (translation_status IN ('draft', 'reviewed', 'published')),
-    CHECK (translation_source IN ('manual', 'ai_assisted', 'imported'))
+    deleted_at timestamptz
 );
 
-CREATE INDEX IF NOT EXISTS idx_listing_translations_locale_listing
-    ON public.listing_translations(locale, listing_id)
-    WHERE translation_status = 'published';
+-- Older environments already have the core translation table. Extend that
+-- table in place so its existing audit and soft-delete fields are preserved.
+ALTER TABLE public.listing_translations
+    ADD COLUMN IF NOT EXISTS address_line1 text NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS address_line2 text NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS road text NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS subdistrict_name text NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS district_name text NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS province_name text NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS reviewed_at timestamptz,
+    ADD COLUMN IF NOT EXISTS search_text text NOT NULL DEFAULT '';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_listing_translations_active_language
+    ON public.listing_translations(listing_id, language_code)
+    WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_listing_translations_language_listing
+    ON public.listing_translations(language_code, listing_id)
+    WHERE translation_status = 'published' AND deleted_at IS NULL;
 
 WITH english (
     slug, title, description, address_line1, road,
@@ -247,7 +255,7 @@ Please contact HBD Event directly for pricing, booth dimensions, booth numbers, 
     )
 )
 INSERT INTO public.listing_translations (
-    listing_id, locale, title, description, address_line1, road,
+    listing_id, language_code, title, description, address_line1, road,
     subdistrict_name, district_name, province_name,
     seo_title, seo_description, translation_status, translation_source, reviewed_at, search_text
 )
@@ -260,7 +268,7 @@ SELECT
         english.road, english.subdistrict_name, english.district_name, english.province_name))
 FROM english
 JOIN public.listings listing ON listing.slug = english.slug
-ON CONFLICT (listing_id, locale) DO UPDATE SET
+ON CONFLICT (listing_id, language_code) WHERE deleted_at IS NULL DO UPDATE SET
     title = EXCLUDED.title,
     description = EXCLUDED.description,
     address_line1 = EXCLUDED.address_line1,

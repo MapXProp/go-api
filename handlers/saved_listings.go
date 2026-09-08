@@ -187,8 +187,9 @@ func loadSavedListings(ctx context.Context, db *sql.DB, userID int64) ([]searchL
 		JOIN public.listings listing ON listing.id = saved.listing_id
 		LEFT JOIN public.listing_translations translation
 			ON translation.listing_id = listing.id
-			AND translation.locale = 'en'
+			AND translation.language_code = 'en'
 			AND translation.translation_status = 'published'
+			AND translation.deleted_at IS NULL
 		LEFT JOIN public.listing_category_details category_details ON category_details.listing_id = listing.id
 		LEFT JOIN public.listing_event_details event_details ON event_details.listing_id = listing.id
 		LEFT JOIN LATERAL (

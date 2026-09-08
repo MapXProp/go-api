@@ -772,8 +772,9 @@ func PropertySearchSuggestions(db *sql.DB) fiber.Handler {
 				FROM public.listing_translations translation
 				JOIN public.listings l ON l.id = translation.listing_id
 				WHERE $4 <> 'location'
-				  AND translation.locale = 'en'
+				  AND translation.language_code = 'en'
 				  AND translation.translation_status = 'published'
+				  AND translation.deleted_at IS NULL
 				  AND l.published_at IS NOT NULL
 				  AND l.deleted_at IS NULL
 				  AND l.is_active = true
@@ -1001,6 +1002,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 				FROM public.listing_translations translation
 				WHERE translation.listing_id = l.id
 				  AND translation.translation_status = 'published'
+				  AND translation.deleted_at IS NULL
 				  AND translation.search_text ILIKE `+freeTextPatternArg+`
 			) OR EXISTS (
 				SELECT 1
@@ -1080,8 +1082,9 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		FROM public.listings l
 		LEFT JOIN public.listing_translations lt_en
 			ON lt_en.listing_id = l.id
-			AND lt_en.locale = 'en'
+			AND lt_en.language_code = 'en'
 			AND lt_en.translation_status = 'published'
+			AND lt_en.deleted_at IS NULL
 		LEFT JOIN public.property_projects project ON project.id = l.project_id AND project.is_active = true AND project.deleted_at IS NULL
 		LEFT JOIN public.listing_category_details lcd ON lcd.listing_id = l.id
 		LEFT JOIN public.listing_event_details led ON led.listing_id = l.id

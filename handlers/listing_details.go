@@ -227,8 +227,9 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			FROM public.listings l
 			LEFT JOIN public.listing_translations lt_en
 				ON lt_en.listing_id = l.id
-				AND lt_en.locale = 'en'
+				AND lt_en.language_code = 'en'
 				AND lt_en.translation_status = 'published'
+				AND lt_en.deleted_at IS NULL
 			LEFT JOIN public.listing_category_details lcd ON lcd.listing_id = l.id
 			LEFT JOIN public.listing_contact_profiles lcp ON lcp.listing_id = l.id
 			LEFT JOIN public.organizations o ON o.id = l.organization_id AND o.is_active = true AND o.deleted_at IS NULL

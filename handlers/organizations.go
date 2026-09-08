@@ -349,8 +349,9 @@ func GetOrganizationListings(db *sql.DB) fiber.Handler {
 			FROM public.listings l
 			LEFT JOIN public.listing_translations translation
 				ON translation.listing_id = l.id
-				AND translation.locale = 'en'
+				AND translation.language_code = 'en'
 				AND translation.translation_status = 'published'
+				AND translation.deleted_at IS NULL
 			LEFT JOIN LATERAL (
 				SELECT amount, price_unit, currency_code
 				FROM public.listing_offers
