@@ -79,6 +79,7 @@ type searchListing struct {
 	District           string     `json:"district"`
 	SalePrice          *float64   `json:"sale_price,omitempty"`
 	RentPriceMonthly   *float64   `json:"rent_price_monthly,omitempty"`
+	Currency           string     `json:"currency"`
 	BedroomCount       *int       `json:"bedroom_count,omitempty"`
 	BathroomCount      *int       `json:"bathroom_count,omitempty"`
 	UsableAreaSqm      *float64   `json:"usable_area_sqm,omitempty"`
@@ -1031,7 +1032,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			COALESCE(led.event_name,''), COALESCE(led.venue_floor_label,''),
 			COALESCE(er.round_count,0), er.starts_on, er.ends_on,
 			COALESCE((lcd.details->>'price_on_request')::boolean, led.price_on_request, false),
-			COALESCE(so.offer_type,''), so.amount, COALESCE(so.price_unit,''),
+			COALESCE(so.offer_type,''), so.amount, COALESCE(so.price_unit,''), COALESCE(so.currency_code,'THB'),
 			CASE WHEN COALESCE(lcd.details->>'temporary_space_duration_days','') ~ '^[1-9][0-9]*$'
 				THEN (lcd.details->>'temporary_space_duration_days')::integer END,
 			l.is_verified, COALESCE(ls.source_type,''),
@@ -1076,7 +1077,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			) gallery
 		) pm ON true
 		LEFT JOIN LATERAL (
-			SELECT offer_type, amount, price_unit
+			SELECT offer_type, amount, price_unit, currency_code
 			FROM public.listing_offers
 			WHERE listing_id = l.id
 			ORDER BY CASE offer_type
@@ -1108,7 +1109,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			var sale, rent, area, landArea, lat, lng, offerAmount sql.NullFloat64
 			var beds, baths, temporarySpaceDays sql.NullInt64
 			var published, eventStartsOn, eventEndsOn sql.NullTime
-			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.Description, &item.PropertyTypeCode, &item.AccommodationModel, &item.ListingType, &item.ProjectName, &item.ProjectPublicID, &item.ProjectSlug, &item.ProjectNameEN, &item.ProjectCategory, &item.Address, &item.Province, &item.District, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, pq.Array(&item.ImageURLs), &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.OfferType, &offerAmount, &item.OfferPriceUnit, &temporarySpaceDays, &item.IsVerified, &item.SourceType, &total); err != nil {
+			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.Description, &item.PropertyTypeCode, &item.AccommodationModel, &item.ListingType, &item.ProjectName, &item.ProjectPublicID, &item.ProjectSlug, &item.ProjectNameEN, &item.ProjectCategory, &item.Address, &item.Province, &item.District, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, pq.Array(&item.ImageURLs), &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.OfferType, &offerAmount, &item.OfferPriceUnit, &item.Currency, &temporarySpaceDays, &item.IsVerified, &item.SourceType, &total); err != nil {
 				return c.Status(500).JSON(fiber.Map{"error": "cannot read properties"})
 			}
 			if sale.Valid {

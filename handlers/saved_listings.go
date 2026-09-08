@@ -169,7 +169,7 @@ func loadSavedListings(ctx context.Context, db *sql.DB, userID int64) ([]searchL
 			COALESCE(listing.custom_project_name, ''),
 			trim(concat_ws(' ', listing.address_line1, listing.address_line2)),
 			COALESCE(listing.province_name, ''), COALESCE(listing.district_name, ''),
-			listing.sale_price, listing.rent_price_monthly, listing.bedroom_count, listing.bathroom_count,
+			listing.sale_price, listing.rent_price_monthly, COALESCE(offer.currency_code, 'THB'), listing.bedroom_count, listing.bathroom_count,
 			listing.usable_area_sqm, listing.land_area_sqm, listing.pet_allowed,
 			listing.latitude, listing.longitude, listing.published_at,
 			COALESCE(listing.space_type_code, ''),
@@ -184,6 +184,13 @@ func loadSavedListings(ctx context.Context, db *sql.DB, userID int64) ([]searchL
 		JOIN public.listings listing ON listing.id = saved.listing_id
 		LEFT JOIN public.listing_category_details category_details ON category_details.listing_id = listing.id
 		LEFT JOIN public.listing_event_details event_details ON event_details.listing_id = listing.id
+		LEFT JOIN LATERAL (
+			SELECT currency_code
+			FROM public.listing_offers
+			WHERE listing_id = listing.id
+			ORDER BY CASE offer_type WHEN 'rent' THEN 1 WHEN 'sublease' THEN 2 ELSE 3 END, id
+			LIMIT 1
+		) offer ON true
 		LEFT JOIN LATERAL (
 			SELECT array_agg(space_type_code ORDER BY is_primary DESC, sort_order, space_type_code) AS space_type_codes
 			FROM public.listing_space_types
@@ -232,7 +239,7 @@ func loadSavedListings(ctx context.Context, db *sql.DB, userID int64) ([]searchL
 			&item.ID, &item.PublicListingID, &item.Slug, &item.Title,
 			&item.Description, &item.PropertyTypeCode, &item.AccommodationModel, &item.ListingType,
 			&item.ProjectName, &item.Address, &item.Province, &item.District,
-			&sale, &rent, &bedrooms, &bathrooms, &area, &landArea, &item.PetAllowed,
+			&sale, &rent, &item.Currency, &bedrooms, &bathrooms, &area, &landArea, &item.PetAllowed,
 			&latitude, &longitude, &publishedAt, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes),
 			&item.PrimaryImageURL, &item.EventName, &item.EventFloorLabel, &item.EventRoundCount,
 			&eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.IsVerified, &item.SourceType,
