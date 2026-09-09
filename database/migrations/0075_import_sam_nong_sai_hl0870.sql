@@ -40,7 +40,7 @@ BEGIN
         usage_type,
         listing_type,
         listing_scope,
-        project_name,
+        custom_project_name,
         title,
         description,
         sale_price,
