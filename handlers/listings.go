@@ -687,6 +687,24 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			fmt.Println("Create Listing Discovery Channel Error:", err)
 			return c.Status(500).JSON(fiber.Map{"error": "cannot assign listing discovery channels"})
 		}
+		if req.UsageType == "mixed" {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO public.listing_discovery_channels (listing_id, channel_code, source)
+				VALUES
+					($1, 'homes', CASE WHEN $2 = 'homes' THEN 'manual' ELSE 'derived' END),
+					($1, 'business', CASE WHEN $2 = 'business' THEN 'manual' ELSE 'derived' END)
+				ON CONFLICT (listing_id, channel_code) DO UPDATE SET
+					source = CASE
+						WHEN public.listing_discovery_channels.source = 'editorial' THEN 'editorial'
+						WHEN EXCLUDED.source = 'manual' THEN 'manual'
+						ELSE public.listing_discovery_channels.source
+					END,
+					updated_at = now()
+			`, listingID, req.DiscoveryChannelCode); err != nil {
+				fmt.Println("Create Mixed-use Discovery Channels Error:", err)
+				return c.Status(500).JSON(fiber.Map{"error": "cannot assign mixed-use discovery channels"})
+			}
+		}
 
 		if req.UsageType != "residence" || req.SpaceTypeCode != "" || len(req.AllowedBusinessTypes) > 0 {
 			if _, err := tx.ExecContext(ctx, `
@@ -839,20 +857,21 @@ func CreateListing(db *sql.DB) fiber.Handler {
 
 func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req createListingRequest, verifyMedia bool) error {
 	var (
-		secondaryPhone   string
-		instagram        string
-		province         string
-		district         string
-		subdistrict      string
-		mediaCount       int
-		spaceTypeCount   int
-		amenityCount     int
-		currencyCount    int
-		eventDetailCount int
-		eventRoundCount  int
-		accommodation    string
-		hasLatitude      bool
-		hasLongitude     bool
+		secondaryPhone    string
+		instagram         string
+		province          string
+		district          string
+		subdistrict       string
+		mediaCount        int
+		spaceTypeCount    int
+		amenityCount      int
+		currencyCount     int
+		eventDetailCount  int
+		eventRoundCount   int
+		mixedChannelCount int
+		accommodation     string
+		hasLatitude       bool
+		hasLongitude      bool
 	)
 	err := tx.QueryRowContext(ctx, `
 		SELECT
@@ -869,7 +888,9 @@ func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req 
 			(SELECT count(*) FROM public.listing_amenities WHERE listing_id = $1),
 			(SELECT count(*) FROM public.listing_offers WHERE listing_id = $1 AND currency_code = $2),
 			(SELECT count(*) FROM public.listing_event_details WHERE listing_id = $1),
-			(SELECT count(*) FROM public.listing_event_rounds WHERE listing_id = $1)
+			(SELECT count(*) FROM public.listing_event_rounds WHERE listing_id = $1),
+			(SELECT count(*) FROM public.listing_discovery_channels
+			 WHERE listing_id = $1 AND channel_code IN ('homes', 'business'))
 		FROM public.listings
 		WHERE id = $1
 	`, listingID, req.Currency).Scan(
@@ -887,6 +908,7 @@ func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req 
 		&currencyCount,
 		&eventDetailCount,
 		&eventRoundCount,
+		&mixedChannelCount,
 	)
 	if err != nil {
 		return err
@@ -919,6 +941,9 @@ func verifyCreatedListing(ctx context.Context, tx *sql.Tx, listingID int64, req 
 	if eventDetailCount != expectedEventDetails || eventRoundCount != len(req.EventRounds) {
 		return fmt.Errorf("event data count mismatch: details=%d rounds=%d", eventDetailCount, eventRoundCount)
 	}
+	if req.UsageType == "mixed" && mixedChannelCount != 2 {
+		return fmt.Errorf("mixed-use discovery channel mismatch: got %d want 2", mixedChannelCount)
+	}
 	if hasLatitude != (strings.TrimSpace(req.Latitude) != "") || hasLongitude != (strings.TrimSpace(req.Longitude) != "") {
 		return fmt.Errorf("listing coordinates were not persisted")
 	}
@@ -948,7 +973,7 @@ func (req *createListingRequest) normalize() {
 	req.ListingScope = cleanCode(req.ListingScope, "whole_property")
 	req.UseCaseCodes = cleanStringSlice(req.UseCaseCodes)
 	req.OfferTypes = cleanStringSlice(req.OfferTypes)
-	req.UsageType = cleanCode(req.UsageType, "residence")
+	req.UsageType = normalizeListingUsageType(req.UsageType)
 	req.ListingType = cleanCode(req.ListingType, "rent")
 	legacyContactOrganizer := req.ListingType == "contact_organizer" || inSet("contact_organizer", req.OfferTypes...)
 	if req.ListingType == "event_booking" || req.ListingType == "contact_organizer" {
@@ -1111,15 +1136,58 @@ func (req *createListingRequest) normalize() {
 		delete(req.CategoryDetails, "accommodation_model")
 	}
 
-	if len(req.UseCaseCodes) == 0 {
-		switch req.UsageType {
-		case "business":
-			req.UseCaseCodes = []string{"office"}
-		case "mixed":
-			req.UseCaseCodes = []string{"residential", "office"}
-		default:
-			req.UseCaseCodes = []string{"residential"}
+	req.UsageType, req.UseCaseCodes = normalizeListingUseCases(req.UsageType, req.UseCaseCodes)
+}
+
+func normalizeListingUsageType(value string) string {
+	usageType := cleanCode(value, "residence")
+	switch usageType {
+	case "residential":
+		return "residence"
+	case "mixed_use", "mixed_used", "mix_use", "mix_used":
+		return "mixed"
+	default:
+		return usageType
+	}
+}
+
+func normalizeListingUseCases(usageType string, useCaseCodes []string) (string, []string) {
+	useCaseCodes = cleanStringSlice(useCaseCodes)
+	hasResidential := inSet("residential", useCaseCodes...)
+	hasBusiness := false
+	for _, useCaseCode := range useCaseCodes {
+		if useCaseCode != "residential" {
+			hasBusiness = true
+			break
 		}
+	}
+
+	if usageType == "mixed" {
+		if !hasResidential {
+			useCaseCodes = append(useCaseCodes, "residential")
+			hasResidential = true
+		}
+		if !hasBusiness {
+			useCaseCodes = append(useCaseCodes, "office")
+			hasBusiness = true
+		}
+	} else if len(useCaseCodes) == 0 {
+		if usageType == "business" {
+			useCaseCodes = []string{"office"}
+			hasBusiness = true
+		} else {
+			useCaseCodes = []string{"residential"}
+			hasResidential = true
+		}
+	}
+
+	switch {
+	case hasResidential && hasBusiness:
+		return "mixed", useCaseCodes
+	case hasBusiness:
+		return "business", useCaseCodes
+	default:
+		return "residence", useCaseCodes
 	}
 }
 

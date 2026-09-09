@@ -16,6 +16,49 @@ func TestCreateListingRequiresIdempotencyKeyForNewListings(t *testing.T) {
 	}
 }
 
+func TestCreateListingNormalizeCanonicalizesMixedUseAliases(t *testing.T) {
+	aliases := []string{"mixed", "mixed use", "mixed-use", "mixed_used", "mix use", "mix-used"}
+	for _, alias := range aliases {
+		t.Run(alias, func(t *testing.T) {
+			req := createListingRequest{UsageType: alias}
+
+			req.normalize()
+
+			if req.UsageType != "mixed" {
+				t.Fatalf("usage type: got %q want mixed", req.UsageType)
+			}
+			if !inSet("residential", req.UseCaseCodes...) || !inSet("office", req.UseCaseCodes...) {
+				t.Fatalf("mixed use cases must include residential and business: %#v", req.UseCaseCodes)
+			}
+		})
+	}
+}
+
+func TestCreateListingNormalizeDerivesUsageFromUseCases(t *testing.T) {
+	tests := []struct {
+		name         string
+		usageType    string
+		useCaseCodes []string
+		wantUsage    string
+	}{
+		{name: "residential only", usageType: "business", useCaseCodes: []string{"residential"}, wantUsage: "residence"},
+		{name: "business only", usageType: "residence", useCaseCodes: []string{"industrial"}, wantUsage: "business"},
+		{name: "both", usageType: "residence", useCaseCodes: []string{"residential", "retail"}, wantUsage: "mixed"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			req := createListingRequest{UsageType: test.usageType, UseCaseCodes: test.useCaseCodes}
+
+			req.normalize()
+
+			if req.UsageType != test.wantUsage {
+				t.Fatalf("usage type: got %q want %q (use cases %#v)", req.UsageType, test.wantUsage, req.UseCaseCodes)
+			}
+		})
+	}
+}
+
 func TestCreateListingNormalizeKeepsPrimarySpaceTypeFirst(t *testing.T) {
 	req := createListingRequest{
 		PropertyTypeCode:    "retail_space",
