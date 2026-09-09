@@ -70,6 +70,7 @@ type searchListing struct {
 	DescriptionEN      string     `json:"description_en,omitempty"`
 	PropertyTypeCode   string     `json:"property_type_code"`
 	AccommodationModel string     `json:"accommodation_model"`
+	UsageType          string     `json:"usage_type"`
 	ListingType        string     `json:"listing_type"`
 	ProjectName        string     `json:"project_name"`
 	ProjectPublicID    string     `json:"project_public_id,omitempty"`
@@ -887,7 +888,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 					SELECT 1 FROM public.listing_offers dlo
 					WHERE dlo.listing_id=l.id AND dlo.offer_type = ANY(dcpt.allowed_offer_types)
 				  ))
-			))`)
+			) OR (l.usage_type = 'mixed' AND `+channelArg+` IN ('homes', 'business')))`)
 		}
 		categoryFilters := []string{}
 		if len(intent.PropertyTypes) > 0 {
@@ -909,7 +910,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 					SELECT 1 FROM public.listing_offers dlo
 					WHERE dlo.listing_id=l.id AND dlo.offer_type = ANY(dcpt.allowed_offer_types)
 				  ))
-			))`)
+			) OR (l.usage_type = 'mixed' AND ARRAY['homes','business']::text[] && `+channelsArg+`))`)
 		}
 		if len(intent.SpaceTypes) > 0 {
 			spaceTypesArg := arg(pq.Array(intent.SpaceTypes))
@@ -1064,7 +1065,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		END DESC, COALESCE(mp.priority_weight, 0) DESC`
 		sqlQuery := `SELECT l.id, l.public_listing_id::text, COALESCE(l.slug,''), l.title,
 			COALESCE(lt_en.title,''), COALESCE(l.description,''), COALESCE(lt_en.description,''),
-			l.property_type_code, COALESCE(l.accommodation_model,''), l.listing_type,
+			l.property_type_code, COALESCE(l.accommodation_model,''), COALESCE(l.usage_type,''), l.listing_type,
 			COALESCE(project.name_th,l.custom_project_name,''),
 			COALESCE(project.public_project_id::text,''), COALESCE(project.slug,''),
 			COALESCE(project.name_en,''), COALESCE(project.project_category,''),
@@ -1179,7 +1180,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			var sale, rent, area, landArea, lat, lng, offerAmount sql.NullFloat64
 			var beds, baths, temporarySpaceDays sql.NullInt64
 			var published, eventStartsOn, eventEndsOn sql.NullTime
-			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.TitleEN, &item.Description, &item.DescriptionEN, &item.PropertyTypeCode, &item.AccommodationModel, &item.ListingType, &item.ProjectName, &item.ProjectPublicID, &item.ProjectSlug, &item.ProjectNameEN, &item.ProjectCategory, &item.Address, &item.AddressEN, &item.Province, &item.ProvinceEN, &item.District, &item.DistrictEN, &item.SubdistrictEN, &item.RoadEN, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, pq.Array(&item.ImageURLs), &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.OfferType, &offerAmount, &item.OfferPriceUnit, &item.Currency, &temporarySpaceDays, &item.IsVerified, &item.SourceType, &item.MapPromotionTier, &item.MapPriorityWeight, &item.IsMapPromoted, &total); err != nil {
+			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.TitleEN, &item.Description, &item.DescriptionEN, &item.PropertyTypeCode, &item.AccommodationModel, &item.UsageType, &item.ListingType, &item.ProjectName, &item.ProjectPublicID, &item.ProjectSlug, &item.ProjectNameEN, &item.ProjectCategory, &item.Address, &item.AddressEN, &item.Province, &item.ProvinceEN, &item.District, &item.DistrictEN, &item.SubdistrictEN, &item.RoadEN, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, pq.Array(&item.ImageURLs), &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.OfferType, &offerAmount, &item.OfferPriceUnit, &item.Currency, &temporarySpaceDays, &item.IsVerified, &item.SourceType, &item.MapPromotionTier, &item.MapPriorityWeight, &item.IsMapPromoted, &total); err != nil {
 				return c.Status(500).JSON(fiber.Map{"error": "cannot read properties"})
 			}
 			if sale.Valid {
