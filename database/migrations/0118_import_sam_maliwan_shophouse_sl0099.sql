@@ -267,7 +267,7 @@ BEGIN
         (property_listing_id, 'ถนนมะลิวัลย์ (ทล.12)', 'Maliwan Road (Highway 12)', 'road', NULL, NULL, NULL, 10, true),
         (property_listing_id, 'มหาวิทยาลัยขอนแก่น', 'Khon Kaen University', 'education', NULL, NULL, NULL, 20, true),
         (property_listing_id, 'ค่ายสีหราชเดโชไชย', 'Si Harat Decho Chai Camp', 'landmark', NULL, NULL, NULL, 30, true),
-        (property_listing_id, 'ท่าอากาศยานขอนแก่น', 'Khon Kaen Airport', 'airport', NULL, NULL, NULL, 40, true),
+        (property_listing_id, 'ท่าอากาศยานขอนแก่น', 'Khon Kaen Airport', 'transit', NULL, NULL, NULL, 40, true),
         (property_listing_id, 'ถนนมิตรภาพ', 'Mittraphap Road', 'road', NULL, NULL, NULL, 50, false),
         (property_listing_id, 'การไฟฟ้าส่วนภูมิภาค', 'Provincial Electricity Authority', 'government', NULL, NULL, NULL, 60, false)
     ON CONFLICT (listing_id, place_name_th) DO UPDATE SET
