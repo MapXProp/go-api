@@ -827,6 +827,7 @@ func PropertySearchSuggestions(db *sql.DB) fiber.Handler {
 func SearchProperties(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		query := strings.TrimSpace(c.Query("q"))
+		mapView := c.Query("view") == "map"
 		identifier := strings.TrimSpace(c.Query("identifier"))
 		if c.Context().QueryArgs().Has("identifier") && identifier == "" {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "listing identifier is required"})
@@ -873,6 +874,13 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			where = append(where, listingIdentifierPredicate(identifier, arg))
 		}
 		directPropertyTypes := allowedQueryValues(c, "property_type", searchablePropertyTypes)
+		for _, propertyType := range directPropertyTypes {
+			if propertyType == "detached_house" {
+				// Published listings created before the taxonomy migration use house.
+				directPropertyTypes = append(directPropertyTypes, "house")
+				break
+			}
+		}
 		directSpaceTypes := allowedQueryValues(c, "space_type", searchableSpaceTypes)
 		directOfferTypes := allowedQueryValues(c, "offer_type", searchableOfferTypes)
 		discoveryChannel := strings.TrimSpace(c.Query("channel"))
@@ -1080,8 +1088,20 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			WHEN 'boosted' THEN 1
 			ELSE 0
 		END DESC, COALESCE(mp.priority_weight, 0) DESC`
+		// Map cards need one image and no rich-text description. Keep the same
+		// public visibility and filter predicates, while avoiding full detail payloads.
+		descriptionColumns := "COALESCE(l.description,''), COALESCE(lt_en.description,'')"
+		galleryLimit := "4"
+		if mapView {
+			descriptionColumns = "''::text, ''::text"
+			galleryLimit = "1"
+		}
+		offerPreference := ""
+		if len(directOfferTypes) > 0 {
+			offerPreference = "CASE WHEN offer_type = ANY(" + arg(pq.Array(directOfferTypes)) + ") THEN 0 ELSE 1 END, "
+		}
 		sqlQuery := `SELECT l.id, l.public_listing_id::text, COALESCE(l.slug,''), l.title,
-			COALESCE(lt_en.title,''), COALESCE(l.description,''), COALESCE(lt_en.description,''),
+			COALESCE(lt_en.title,''), ` + descriptionColumns + `,
 			l.property_type_code, COALESCE(l.accommodation_model,''), COALESCE(l.usage_type,''), l.listing_type,
 			COALESCE(project.name_th,l.custom_project_name,''),
 			COALESCE(project.public_project_id::text,''), COALESCE(project.slug,''),
@@ -1146,7 +1166,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 						AND media_type = 'image'
 						AND COALESCE(NULLIF(large_url,''), NULLIF(medium_url,''), NULLIF(file_url,''), NULLIF(original_url,''), '') <> ''
 					ORDER BY is_primary DESC, sort_order, id
-					LIMIT 4
+					LIMIT ` + galleryLimit + `
 				) gallery_images
 			) gallery
 		) pm ON true
@@ -1154,7 +1174,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			SELECT offer_type, amount, price_unit, currency_code
 			FROM public.listing_offers
 			WHERE listing_id = l.id
-			ORDER BY CASE offer_type
+			ORDER BY ` + offerPreference + `CASE offer_type
 				WHEN 'rent' THEN 1
 				WHEN 'sublease' THEN 2
 				ELSE 3
@@ -1183,7 +1203,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			LIMIT 1
 		) mp ON true
 		WHERE ` + strings.Join(where, " AND ") + `
-		ORDER BY ` + promotionOrderBy + `, ` + orderBy + `
+		ORDER BY ` + promotionOrderBy + `, ` + orderBy + `, l.id DESC
 		LIMIT ` + limitArg + ` OFFSET ` + offsetArg
 		rows, err := db.QueryContext(ctx, sqlQuery, args...)
 		if err != nil {
@@ -1244,7 +1264,10 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			}
 			listings = append(listings, item)
 		}
-		if identifier == "" {
+		if err := rows.Err(); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": "cannot finish reading properties"})
+		}
+		if identifier == "" && !mapView {
 			intentJSON, _ := json.Marshal(intent)
 			_, _ = db.ExecContext(context.Background(), `INSERT INTO public.search_query_events(query_text,normalized_query,parsed_intent,result_count,source) VALUES($1,$2,$3,$4,'web')`, query, intent.Normalized, intentJSON, total)
 		}

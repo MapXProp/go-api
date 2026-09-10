@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -100,6 +102,53 @@ func TestListingPermalinksResolveOutsideCataloguePage(t *testing.T) {
 	}
 	readResponse("/search?identifier=", 400, nil)
 	readResponse("/listings/nonexistent-permalink-regression-check", 404, nil)
+
+	// The map uses the same public catalogue and exact stored coordinates,
+	// but a small payload. Paging must include the oldest published record.
+	type mapResponse struct {
+		Listings []searchListing `json:"listings"`
+		Total    int             `json:"total"`
+	}
+	seen := map[int64]bool{}
+	for offset := 0; offset < catalogue.Total; {
+		var page mapResponse
+		readResponse("/search?view=map&limit=17&offset="+strconv.Itoa(offset), 200, &page)
+		if len(page.Listings) == 0 || page.Total != catalogue.Total {
+			t.Fatal("map catalogue stopped before its advertised total")
+		}
+		for _, listing := range page.Listings {
+			if seen[listing.ID] {
+				t.Fatal("map pagination duplicated a listing")
+			}
+			seen[listing.ID] = true
+			if listing.Description != "" || listing.DescriptionEN != "" || len(listing.ImageURLs) > 1 {
+				t.Fatal("map response included unnecessary full listing content")
+			}
+		}
+		offset += len(page.Listings)
+	}
+	if len(seen) != catalogue.Total || !seen[oldest.ID] {
+		t.Fatal("map catalogue omitted published listings")
+	}
+	for _, filters := range []string{"", "&channel=homes&property_type=detached_house", "&channel=business&space_type=event_booth&offer_type=rent", "&min_lat=13&max_lat=14&min_lon=100&max_lon=101"} {
+		var normal, compact mapResponse
+		readResponse("/search?limit=60"+filters, 200, &normal)
+		readResponse("/search?view=map&limit=60"+filters, 200, &compact)
+		if normal.Total != compact.Total || len(normal.Listings) != len(compact.Listings) {
+			t.Fatal("map projection changed search results")
+		}
+		for index, listing := range normal.Listings {
+			point := compact.Listings[index]
+			if listing.ID != point.ID || !reflect.DeepEqual(listing.Latitude, point.Latitude) || !reflect.DeepEqual(listing.Longitude, point.Longitude) || listing.Slug != point.Slug {
+				t.Fatal("map projection changed a listing identity or coordinate")
+			}
+		}
+		if filters == "" {
+			fullJSON, _ := json.Marshal(normal)
+			mapJSON, _ := json.Marshal(compact)
+			t.Logf("Map catalogue: %d published listings; first page payload %d -> %d bytes", len(seen), len(fullJSON), len(mapJSON))
+		}
+	}
 	var hidden string
 	err = db.QueryRow(`SELECT slug FROM listings WHERE slug IS NOT NULL
 		AND (deleted_at IS NOT NULL OR NOT is_active OR listing_status<>'active'
