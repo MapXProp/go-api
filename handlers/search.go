@@ -873,14 +873,18 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 				return c.Status(400).JSON(fiber.Map{"error": "invalid discovery channel"})
 			}
 
-			// Discovery channel is deliberately an AND filter. A category page must
-			// only surface the inventory curated for that channel, while still
-			// honouring the automatic property-type mapping for future listings.
+			// Discovery channel is deliberately an AND filter. Editorial or manual
+			// channel curation takes precedence over the broad property-type mapping;
+			// the mapping remains a fallback for listings without explicit curation.
 			channelArg := arg(discoveryChannel)
 			where = append(where, `(EXISTS (
 				SELECT 1 FROM public.listing_discovery_channels ldc
 				WHERE ldc.listing_id=l.id AND ldc.channel_code = `+channelArg+`
-			) OR EXISTS (
+			) OR (NOT EXISTS (
+				SELECT 1 FROM public.listing_discovery_channels explicit_ldc
+				WHERE explicit_ldc.listing_id=l.id
+				  AND explicit_ldc.source IN ('editorial', 'manual')
+			) AND EXISTS (
 				SELECT 1 FROM public.discovery_channel_property_types dcpt
 				WHERE dcpt.channel_code = `+channelArg+`
 				  AND dcpt.property_type_code=l.property_type_code
@@ -888,7 +892,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 					SELECT 1 FROM public.listing_offers dlo
 					WHERE dlo.listing_id=l.id AND dlo.offer_type = ANY(dcpt.allowed_offer_types)
 				  ))
-			) OR (l.usage_type = 'mixed' AND `+channelArg+` IN ('homes', 'business')))`)
+			)) OR (l.usage_type = 'mixed' AND `+channelArg+` IN ('homes', 'business')))`)
 		}
 		categoryFilters := []string{}
 		if len(intent.PropertyTypes) > 0 {
@@ -902,7 +906,11 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			categoryFilters = append(categoryFilters, `(EXISTS (
 				SELECT 1 FROM public.listing_discovery_channels ldc
 				WHERE ldc.listing_id=l.id AND ldc.channel_code = ANY(`+channelsArg+`)
-			) OR EXISTS (
+			) OR (NOT EXISTS (
+				SELECT 1 FROM public.listing_discovery_channels explicit_ldc
+				WHERE explicit_ldc.listing_id=l.id
+				  AND explicit_ldc.source IN ('editorial', 'manual')
+			) AND EXISTS (
 				SELECT 1 FROM public.discovery_channel_property_types dcpt
 				WHERE dcpt.channel_code = ANY(`+channelsArg+`)
 				  AND dcpt.property_type_code=l.property_type_code
@@ -910,7 +918,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 					SELECT 1 FROM public.listing_offers dlo
 					WHERE dlo.listing_id=l.id AND dlo.offer_type = ANY(dcpt.allowed_offer_types)
 				  ))
-			) OR (l.usage_type = 'mixed' AND ARRAY['homes','business']::text[] && `+channelsArg+`))`)
+			)) OR (l.usage_type = 'mixed' AND ARRAY['homes','business']::text[] && `+channelsArg+`))`)
 		}
 		if len(intent.SpaceTypes) > 0 {
 			spaceTypesArg := arg(pq.Array(intent.SpaceTypes))
