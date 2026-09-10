@@ -827,6 +827,10 @@ func PropertySearchSuggestions(db *sql.DB) fiber.Handler {
 func SearchProperties(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		query := strings.TrimSpace(c.Query("q"))
+		identifier := strings.TrimSpace(c.Query("identifier"))
+		if c.Context().QueryArgs().Has("identifier") && identifier == "" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "listing identifier is required"})
+		}
 		bounds, boundsErr := parseSearchBounds(c)
 		if boundsErr != nil {
 			return c.Status(400).JSON(fiber.Map{"error": boundsErr.Error()})
@@ -863,6 +867,11 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		}
 		args := []any{}
 		arg := func(value any) string { args = append(args, value); return fmt.Sprintf("$%d", len(args)) }
+		// A permalink lookup must select its listing before pagination. Loading
+		// a recent catalogue page and searching it hides older published listings.
+		if identifier != "" {
+			where = append(where, listingIdentifierPredicate(identifier, arg))
+		}
 		directPropertyTypes := allowedQueryValues(c, "property_type", searchablePropertyTypes)
 		directSpaceTypes := allowedQueryValues(c, "space_type", searchableSpaceTypes)
 		directOfferTypes := allowedQueryValues(c, "offer_type", searchableOfferTypes)
@@ -1235,8 +1244,10 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			}
 			listings = append(listings, item)
 		}
-		intentJSON, _ := json.Marshal(intent)
-		_, _ = db.ExecContext(context.Background(), `INSERT INTO public.search_query_events(query_text,normalized_query,parsed_intent,result_count,source) VALUES($1,$2,$3,$4,'web')`, query, intent.Normalized, intentJSON, total)
+		if identifier == "" {
+			intentJSON, _ := json.Marshal(intent)
+			_, _ = db.ExecContext(context.Background(), `INSERT INTO public.search_query_events(query_text,normalized_query,parsed_intent,result_count,source) VALUES($1,$2,$3,$4,'web')`, query, intent.Normalized, intentJSON, total)
+		}
 		return c.JSON(fiber.Map{"query": query, "bounds": bounds, "intent": intent, "listings": listings, "total": total, "limit": limit, "offset": offset})
 	}
 }

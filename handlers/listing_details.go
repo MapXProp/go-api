@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -188,6 +189,11 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 		var eventName, organizerName, organizerWebsiteURL, organizerVerificationStatus, venueName, venueFloor, applicationInstructions, floorPlanURL sql.NullString
 		var audienceSegments, acceptedProducts pq.StringArray
 		var priceOnRequest, boothSizeOnRequest sql.NullBool
+		args := []any{}
+		identifierWhere := listingIdentifierPredicate(slug, func(value any) string {
+			args = append(args, value)
+			return fmt.Sprintf("$%d", len(args))
+		})
 
 		err := db.QueryRowContext(ctx, `
 			SELECT
@@ -244,14 +250,15 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			) lo ON true
 			LEFT JOIN public.listing_event_details led ON led.listing_id = l.id
 			LEFT JOIN public.listing_organizers organizer ON organizer.id = led.organizer_id
-			WHERE l.slug = $1
+			WHERE `+identifierWhere+`
+			  AND l.published_at IS NOT NULL
 			  AND l.is_active = true
 			  AND l.deleted_at IS NULL
 			  AND l.listing_status = 'active'
 			  AND l.moderation_status = 'approved'
 			  AND (l.expires_at IS NULL OR l.expires_at > now())
 			LIMIT 1
-		`, slug).Scan(
+		`, args...).Scan(
 			&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.TitleEN,
 			&item.Description, &item.DescriptionEN, &item.PropertyTypeCode, &item.AccommodationModel, &item.UsageType,
 			&item.ListingType, &item.ListingScope, &item.SpaceTypeCode,
