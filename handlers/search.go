@@ -96,6 +96,7 @@ type searchListing struct {
 	Latitude           *float64   `json:"latitude,omitempty"`
 	Longitude          *float64   `json:"longitude,omitempty"`
 	PublishedAt        *time.Time `json:"published_at,omitempty"`
+	UpdatedAt          *time.Time `json:"updated_at,omitempty"`
 	SpaceTypeCode      string     `json:"space_type_code"`
 	SpaceTypeCodes     []string   `json:"space_type_codes"`
 	PrimaryImageURL    string     `json:"primary_image_url"`
@@ -1112,7 +1113,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			COALESCE(l.district_name,''), COALESCE(lt_en.district_name,''),
 			COALESCE(lt_en.subdistrict_name,''), COALESCE(lt_en.road,''),
 			l.sale_price, l.rent_price_monthly, l.bedroom_count, l.bathroom_count,
-			l.usable_area_sqm, l.land_area_sqm, l.pet_allowed, l.latitude, l.longitude, l.published_at,
+			l.usable_area_sqm, l.land_area_sqm, l.pet_allowed, l.latitude, l.longitude, l.published_at, l.updated_at,
 			COALESCE(l.space_type_code,''),
 			COALESCE(lst.space_type_codes, CASE WHEN NULLIF(l.space_type_code, '') IS NULL THEN ARRAY[]::text[] ELSE ARRAY[l.space_type_code] END),
 			COALESCE(pm.media_url,''),
@@ -1216,8 +1217,8 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			var item searchListing
 			var sale, rent, area, landArea, lat, lng, offerAmount sql.NullFloat64
 			var beds, baths, temporarySpaceDays sql.NullInt64
-			var published, eventStartsOn, eventEndsOn sql.NullTime
-			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.TitleEN, &item.Description, &item.DescriptionEN, &item.PropertyTypeCode, &item.AccommodationModel, &item.UsageType, &item.ListingType, &item.ProjectName, &item.ProjectPublicID, &item.ProjectSlug, &item.ProjectNameEN, &item.ProjectCategory, &item.Address, &item.AddressEN, &item.Province, &item.ProvinceEN, &item.District, &item.DistrictEN, &item.SubdistrictEN, &item.RoadEN, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, pq.Array(&item.ImageURLs), &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.OfferType, &offerAmount, &item.OfferPriceUnit, &item.Currency, &temporarySpaceDays, &item.IsVerified, &item.SourceType, &item.MapPromotionTier, &item.MapPriorityWeight, &item.IsMapPromoted, &total); err != nil {
+			var published, updated, eventStartsOn, eventEndsOn sql.NullTime
+			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.TitleEN, &item.Description, &item.DescriptionEN, &item.PropertyTypeCode, &item.AccommodationModel, &item.UsageType, &item.ListingType, &item.ProjectName, &item.ProjectPublicID, &item.ProjectSlug, &item.ProjectNameEN, &item.ProjectCategory, &item.Address, &item.AddressEN, &item.Province, &item.ProvinceEN, &item.District, &item.DistrictEN, &item.SubdistrictEN, &item.RoadEN, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &updated, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, pq.Array(&item.ImageURLs), &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.OfferType, &offerAmount, &item.OfferPriceUnit, &item.Currency, &temporarySpaceDays, &item.IsVerified, &item.SourceType, &item.MapPromotionTier, &item.MapPriorityWeight, &item.IsMapPromoted, &total); err != nil {
 				return c.Status(500).JSON(fiber.Map{"error": "cannot read properties"})
 			}
 			if sale.Valid {
@@ -1255,6 +1256,9 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			}
 			if published.Valid {
 				item.PublishedAt = &published.Time
+			}
+			if updated.Valid {
+				item.UpdatedAt = &updated.Time
 			}
 			if eventStartsOn.Valid {
 				item.EventStartsOn = &eventStartsOn.Time

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/joho/godotenv"
@@ -39,9 +40,10 @@ func TestListingPermalinksResolveOutsideCataloguePage(t *testing.T) {
 	}
 
 	type reference struct {
-		ID     int64  `json:"id"`
-		Slug   string `json:"slug"`
-		Public string `json:"public_listing_id"`
+		ID        int64      `json:"id"`
+		Slug      string     `json:"slug"`
+		Public    string     `json:"public_listing_id"`
+		UpdatedAt *time.Time `json:"updated_at"`
 	}
 	var oldest reference
 	if err := db.QueryRow(`SELECT id, slug, public_listing_id::text FROM listings
@@ -80,6 +82,10 @@ func TestListingPermalinksResolveOutsideCataloguePage(t *testing.T) {
 		t.Fatal("regression fixture needs an older listing outside the first catalogue page")
 	}
 	for _, ref := range []reference{oldest, catalogue.Listings[0]} {
+		var modified time.Time
+		if err := db.QueryRow("SELECT updated_at FROM listings WHERE id = $1", ref.ID).Scan(&modified); err != nil {
+			t.Fatal("read persisted modification date:", err)
+		}
 		for _, identifier := range []string{ref.Slug, ref.Public, strings.ToUpper(ref.Public)} {
 			var found searchResponse
 			readResponse("/search?limit=1&identifier="+url.QueryEscape(identifier), 200, &found)
@@ -90,6 +96,9 @@ func TestListingPermalinksResolveOutsideCataloguePage(t *testing.T) {
 			readResponse("/listings/"+url.PathEscape(identifier), 200, &detail)
 			if detail.ID != ref.ID {
 				t.Fatalf("detail %s resolved another listing", identifier)
+			}
+			if detail.UpdatedAt == nil || !detail.UpdatedAt.Equal(modified) || found.Listings[0].UpdatedAt == nil || !found.Listings[0].UpdatedAt.Equal(modified) {
+				t.Fatal("detail/search modification dates must match the persisted listing timestamp")
 			}
 		}
 	}

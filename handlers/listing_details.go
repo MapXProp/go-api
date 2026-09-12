@@ -161,6 +161,7 @@ type listingDetailResponse struct {
 	ServiceFeeMonthly        *float64                         `json:"service_fee_monthly,omitempty"`
 	Amenities                []string                         `json:"amenities"`
 	PublishedAt              *time.Time                       `json:"published_at,omitempty"`
+	UpdatedAt                *time.Time                       `json:"updated_at,omitempty"`
 	ExpiresAt                *time.Time                       `json:"expires_at,omitempty"`
 	IsVerified               bool                             `json:"is_verified"`
 	CategoryDetails          map[string]any                   `json:"category_details"`
@@ -184,7 +185,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 		var item listingDetailResponse
 		var latitude, longitude, amount, depositAmount, advanceAmount, serviceFee, usableAreaSqm, landAreaSqm sql.NullFloat64
 		var bedroomCount, bathroomCount, parkingCount, floorNo, totalFloors, minimumContractMonths sql.NullInt64
-		var publishedAt, expiresAt, sourcePublishedAt sql.NullTime
+		var publishedAt, updatedAt, expiresAt, sourcePublishedAt sql.NullTime
 		var rawCategoryDetails []byte
 		var eventName, organizerName, organizerWebsiteURL, organizerVerificationStatus, venueName, venueFloor, applicationInstructions, floorPlanURL sql.NullString
 		var audienceSegments, acceptedProducts pq.StringArray
@@ -222,7 +223,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				COALESCE(lo.offer_type, ''), lo.amount, COALESCE(lo.price_unit, l.price_unit, ''),
 				COALESCE(lo.currency_code, 'THB'), lo.deposit_amount, lo.advance_amount,
 				lo.minimum_contract_months, lo.service_fee_monthly, COALESCE(lo.is_negotiable, false),
-				l.published_at, l.expires_at, l.is_verified, COALESCE(lcd.details, '{}'::jsonb),
+				l.published_at, l.updated_at, l.expires_at, l.is_verified, COALESCE(lcd.details, '{}'::jsonb),
 				led.event_name, led.organizer_name,
 				organizer.website_url, organizer.verification_status,
 				led.venue_name, led.venue_floor_label,
@@ -275,7 +276,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			&item.OrganizationWebsite, &item.OrganizationLogoURL,
 			&item.OfferType, &amount, &item.PriceUnit, &item.Currency,
 			&depositAmount, &advanceAmount, &minimumContractMonths, &serviceFee, &item.PriceNegotiable,
-			&publishedAt, &expiresAt, &item.IsVerified, &rawCategoryDetails,
+			&publishedAt, &updatedAt, &expiresAt, &item.IsVerified, &rawCategoryDetails,
 			&eventName, &organizerName, &organizerWebsiteURL, &organizerVerificationStatus, &venueName, &venueFloor,
 			&audienceSegments, &acceptedProducts, &applicationInstructions, &floorPlanURL,
 			&priceOnRequest, &boothSizeOnRequest, &sourcePublishedAt,
@@ -344,6 +345,9 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 		}
 		if publishedAt.Valid {
 			item.PublishedAt = &publishedAt.Time
+		}
+		if updatedAt.Valid {
+			item.UpdatedAt = &updatedAt.Time
 		}
 		if expiresAt.Valid {
 			item.ExpiresAt = &expiresAt.Time
