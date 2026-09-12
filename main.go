@@ -3,6 +3,7 @@ package main
 import (
 	"estate-map-api/database" // ดึงการเชื่อมต่อ DB
 	"estate-map-api/handlers"
+	"estate-map-api/internal/indexnow"
 	"estate-map-api/routes" // ดึงการจัดการเส้นทาง URL
 	"fmt"
 	"log"
@@ -41,6 +42,8 @@ func main() {
 	}
 	stopDraftCleanup := handlers.StartListingDraftCleanup(db)
 	defer stopDraftCleanup()
+	stopIndexNow := indexnow.Start(db)
+	defer stopIndexNow()
 
 	// 3. ตั้งค่า Routes ทั้งหมด (รวมสารบัญ API ไว้ที่นี่)
 	// ตรงนี้จะไปเรียกใช้ทั้ง handlers และดึงข้อมูลจาก models ให้อัตโนมัติ
