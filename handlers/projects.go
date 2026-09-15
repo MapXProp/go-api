@@ -17,6 +17,7 @@ type propertyProjectResponse struct {
 	ProjectCategory        string   `json:"project_category"`
 	NameTH                 string   `json:"name_th"`
 	NameEN                 string   `json:"name_en"`
+	DisplayName            string   `json:"display_name"`
 	Aliases                []string `json:"aliases"`
 	DeveloperNameTH        string   `json:"developer_name_th"`
 	DeveloperNameEN        string   `json:"developer_name_en"`
@@ -68,6 +69,7 @@ func ListPropertyProjects(db *sql.DB) fiber.Handler {
 				p.project_category,
 				p.name_th,
 				COALESCE(p.name_en, ''),
+				public.project_display_name(p.name_th, p.name_en, p.display_name_language),
 				COALESCE(alias_set.aliases, ARRAY[]::text[]),
 				COALESCE(p.developer_name_th, ''),
 				COALESCE(p.developer_name_en, ''),
@@ -180,6 +182,7 @@ func GetPropertyProject(db *sql.DB) fiber.Handler {
 				p.project_category,
 				p.name_th,
 				COALESCE(p.name_en, ''),
+				public.project_display_name(p.name_th, p.name_en, p.display_name_language),
 				COALESCE(alias_set.aliases, ARRAY[]::text[]),
 				COALESCE(p.developer_name_th, ''),
 				COALESCE(p.developer_name_en, ''),
@@ -252,6 +255,7 @@ func scanPropertyProject(scanner projectScanner) (propertyProjectResponse, error
 		&project.ProjectCategory,
 		&project.NameTH,
 		&project.NameEN,
+		&project.DisplayName,
 		pq.Array(&project.Aliases),
 		&project.DeveloperNameTH,
 		&project.DeveloperNameEN,

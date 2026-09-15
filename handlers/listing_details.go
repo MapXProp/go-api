@@ -111,6 +111,7 @@ type listingDetailResponse struct {
 	ProjectPublicID          string                           `json:"project_public_id,omitempty"`
 	ProjectSlug              string                           `json:"project_slug,omitempty"`
 	ProjectNameEN            string                           `json:"project_name_en,omitempty"`
+	ProjectDisplayName       string                           `json:"project_display_name,omitempty"`
 	ProjectCategory          string                           `json:"project_category,omitempty"`
 	BuildingName             string                           `json:"building_name"`
 	Address                  string                           `json:"address"`
@@ -205,6 +206,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				COALESCE(project.name_th, l.custom_project_name, ''),
 				COALESCE(project.public_project_id::text, ''), COALESCE(project.slug, ''),
 				COALESCE(NULLIF(trim(project.name_en), ''), l.custom_project_name_en, ''), COALESCE(project.project_category, ''),
+				public.project_display_name(COALESCE(project.name_th, l.custom_project_name), COALESCE(NULLIF(trim(project.name_en), ''), l.custom_project_name_en), COALESCE(project.display_name_language, l.custom_project_name_language)),
 				COALESCE(l.custom_building_name, ''),
 				trim(concat_ws(' ', l.address_line1, l.address_line2)),
 				trim(concat_ws(' ', lt_en.address_line1, lt_en.address_line2)),
@@ -265,7 +267,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			&item.Description, &item.DescriptionEN, &item.PropertyTypeCode, &item.AccommodationModel, &item.UsageType,
 			&item.ListingType, &item.ListingScope, &item.SpaceTypeCode,
 			&item.ProjectName, &item.ProjectPublicID, &item.ProjectSlug,
-			&item.ProjectNameEN, &item.ProjectCategory, &item.BuildingName, &item.Address, &item.AddressEN,
+			&item.ProjectNameEN, &item.ProjectCategory, &item.ProjectDisplayName, &item.BuildingName, &item.Address, &item.AddressEN,
 			&item.Province, &item.ProvinceEN, &item.District, &item.DistrictEN, &item.Subdistrict, &item.SubdistrictEN, &item.PostalCode,
 			&item.Road, &item.RoadEN, &usableAreaSqm, &landAreaSqm,
 			&bedroomCount, &bathroomCount, &parkingCount, &floorNo, &totalFloors,

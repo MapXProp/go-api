@@ -77,6 +77,7 @@ type searchListing struct {
 	ProjectPublicID     string     `json:"project_public_id,omitempty"`
 	ProjectSlug         string     `json:"project_slug,omitempty"`
 	ProjectNameEN       string     `json:"project_name_en,omitempty"`
+	ProjectDisplayName  string     `json:"project_display_name,omitempty"`
 	ProjectCategory     string     `json:"project_category,omitempty"`
 	ProjectLatitude     *float64   `json:"project_latitude,omitempty"`
 	ProjectLongitude    *float64   `json:"project_longitude,omitempty"`
@@ -678,9 +679,9 @@ func PropertySearchSuggestions(db *sql.DB) fiber.Handler {
 
 				UNION ALL
 				SELECT 'project',
-					COALESCE(NULLIF(trim(p.name_en), ''), p.name_th),
+					public.project_display_name(p.name_th, p.name_en, p.display_name_language),
 					p.project_category,
-					COALESCE(NULLIF(trim(p.name_en), ''), p.name_th),
+					public.project_display_name(p.name_th, p.name_en, p.display_name_language),
 					110,
 					greatest(
 						similarity(lower(p.name_th), $1),
@@ -729,19 +730,19 @@ func PropertySearchSuggestions(db *sql.DB) fiber.Handler {
 
 				UNION ALL
 				SELECT 'location', place.display_name, place.kind, place.display_name, place.priority,
-					greatest(similarity(lower(place.name), $1), similarity(lower(place.display_name), $1)),
+					greatest(similarity(lower(place.name), $1), similarity(lower(place.display_name), $1), similarity(lower(place.name_en), $1)),
 					CASE
-						WHEN lower(place.name) = $1 OR lower(place.display_name) = $1 THEN 4
-						WHEN lower(place.name) LIKE $1 || '%' OR lower(place.display_name) LIKE $1 || '%' THEN 3
+						WHEN lower(place.name) = $1 OR lower(place.display_name) = $1 OR lower(place.name_en) = $1 THEN 4
+						WHEN lower(place.name) LIKE $1 || '%' OR lower(place.display_name) LIKE $1 || '%' OR lower(place.name_en) LIKE $1 || '%' THEN 3
 						ELSE 1
 					END
 				FROM public.listings l
 				LEFT JOIN public.property_projects project ON project.id = l.project_id AND project.is_active = true AND project.deleted_at IS NULL
 				CROSS JOIN LATERAL (
 					VALUES
-						(NULLIF(trim(l.custom_project_name), ''), COALESCE(NULLIF(trim(project.name_en), ''), NULLIF(trim(l.custom_project_name_en), ''), NULLIF(trim(l.custom_project_name), '')), 'project', 96),
-						(NULLIF(trim(l.custom_building_name), ''), NULLIF(trim(l.custom_building_name), ''), 'building', 94)
-				) AS place(name, display_name, kind, priority)
+						(NULLIF(trim(l.custom_project_name), ''), public.project_display_name(COALESCE(project.name_th, l.custom_project_name), COALESCE(NULLIF(trim(project.name_en), ''), l.custom_project_name_en), COALESCE(project.display_name_language, l.custom_project_name_language)), COALESCE(NULLIF(trim(project.name_en), ''), l.custom_project_name_en), 'project', 96),
+						(NULLIF(trim(l.custom_building_name), ''), NULLIF(trim(l.custom_building_name), ''), NULLIF(trim(l.custom_building_name), ''), 'building', 94)
+				) AS place(name, display_name, name_en, kind, priority)
 				WHERE place.name IS NOT NULL
 				  AND l.published_at IS NOT NULL
 				  AND l.deleted_at IS NULL
@@ -749,8 +750,9 @@ func PropertySearchSuggestions(db *sql.DB) fiber.Handler {
 				  AND l.listing_status = 'active'
 				  AND l.moderation_status = 'approved'
 				  AND (l.expires_at IS NULL OR l.expires_at > now())
-				  AND (lower(place.name) ILIKE '%' || $1 || '%' OR lower(place.display_name) ILIKE '%' || $1 || '%')
-				GROUP BY place.name, place.display_name, place.kind, place.priority
+				  AND (lower(place.name) ILIKE '%' || $1 || '%' OR lower(place.display_name) ILIKE '%' || $1 || '%'
+				    OR lower(place.name_en) ILIKE '%' || $1 || '%')
+				GROUP BY place.name, place.display_name, place.name_en, place.kind, place.priority
 
 				UNION ALL
 				SELECT 'listing', l.title, 'listing', l.title, 90,
@@ -1119,6 +1121,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			COALESCE(project.name_th,l.custom_project_name,''),
 			COALESCE(project.public_project_id::text,''), COALESCE(project.slug,''),
 			COALESCE(NULLIF(trim(project.name_en), ''), l.custom_project_name_en, ''), COALESCE(project.project_category,''), project.latitude, project.longitude,
+			public.project_display_name(COALESCE(project.name_th, l.custom_project_name), COALESCE(NULLIF(trim(project.name_en), ''), l.custom_project_name_en), COALESCE(project.display_name_language, l.custom_project_name_language)),
 			(SELECT COUNT(*) FROM public.listings project_unit
 			 WHERE project_unit.project_id = project.id
 			   AND project_unit.published_at IS NOT NULL AND project_unit.deleted_at IS NULL
@@ -1236,7 +1239,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			var sale, rent, area, landArea, lat, lng, offerAmount, projectLat, projectLon sql.NullFloat64
 			var beds, baths, temporarySpaceDays sql.NullInt64
 			var published, updated, eventStartsOn, eventEndsOn sql.NullTime
-			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.TitleEN, &item.Description, &item.DescriptionEN, &item.PropertyTypeCode, &item.AccommodationModel, &item.UsageType, &item.ListingType, &item.ProjectName, &item.ProjectPublicID, &item.ProjectSlug, &item.ProjectNameEN, &item.ProjectCategory, &projectLat, &projectLon, &item.ProjectListingCount, &item.Address, &item.AddressEN, &item.Province, &item.ProvinceEN, &item.District, &item.DistrictEN, &item.SubdistrictEN, &item.RoadEN, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &updated, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, pq.Array(&item.ImageURLs), &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.OfferType, &offerAmount, &item.OfferPriceUnit, &item.Currency, &temporarySpaceDays, &item.IsVerified, &item.SourceType, &item.MapPromotionTier, &item.MapPriorityWeight, &item.IsMapPromoted, &item.ViewCount, &total); err != nil {
+			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.TitleEN, &item.Description, &item.DescriptionEN, &item.PropertyTypeCode, &item.AccommodationModel, &item.UsageType, &item.ListingType, &item.ProjectName, &item.ProjectPublicID, &item.ProjectSlug, &item.ProjectNameEN, &item.ProjectCategory, &projectLat, &projectLon, &item.ProjectDisplayName, &item.ProjectListingCount, &item.Address, &item.AddressEN, &item.Province, &item.ProvinceEN, &item.District, &item.DistrictEN, &item.SubdistrictEN, &item.RoadEN, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &updated, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, pq.Array(&item.ImageURLs), &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.OfferType, &offerAmount, &item.OfferPriceUnit, &item.Currency, &temporarySpaceDays, &item.IsVerified, &item.SourceType, &item.MapPromotionTier, &item.MapPriorityWeight, &item.IsMapPromoted, &item.ViewCount, &total); err != nil {
 				return c.Status(500).JSON(fiber.Map{"error": "cannot read properties"})
 			}
 			if projectLat.Valid {

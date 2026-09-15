@@ -168,6 +168,7 @@ func loadSavedListings(ctx context.Context, db *sql.DB, userID int64) ([]searchL
 			COALESCE(listing.accommodation_model, ''), listing.listing_type,
 			COALESCE(project.name_th, listing.custom_project_name, ''),
 			COALESCE(NULLIF(trim(project.name_en), ''), listing.custom_project_name_en, ''),
+			public.project_display_name(COALESCE(project.name_th, listing.custom_project_name), COALESCE(NULLIF(trim(project.name_en), ''), listing.custom_project_name_en), COALESCE(project.display_name_language, listing.custom_project_name_language)),
 			trim(concat_ws(' ', listing.address_line1, listing.address_line2)),
 			trim(concat_ws(' ', translation.address_line1, translation.address_line2)),
 			COALESCE(listing.province_name, ''), COALESCE(translation.province_name, ''),
@@ -248,7 +249,7 @@ func loadSavedListings(ctx context.Context, db *sql.DB, userID int64) ([]searchL
 		if err := rows.Scan(
 			&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.TitleEN,
 			&item.Description, &item.DescriptionEN, &item.PropertyTypeCode, &item.AccommodationModel, &item.ListingType,
-			&item.ProjectName, &item.ProjectNameEN, &item.Address, &item.AddressEN, &item.Province, &item.ProvinceEN, &item.District, &item.DistrictEN, &item.SubdistrictEN, &item.RoadEN,
+			&item.ProjectName, &item.ProjectNameEN, &item.ProjectDisplayName, &item.Address, &item.AddressEN, &item.Province, &item.ProvinceEN, &item.District, &item.DistrictEN, &item.SubdistrictEN, &item.RoadEN,
 			&sale, &rent, &item.Currency, &bedrooms, &bathrooms, &area, &landArea, &item.PetAllowed,
 			&latitude, &longitude, &publishedAt, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes),
 			&item.PrimaryImageURL, &item.EventName, &item.EventFloorLabel, &item.EventRoundCount,
