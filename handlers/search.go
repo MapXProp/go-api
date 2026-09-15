@@ -61,62 +61,65 @@ type searchIntent struct {
 }
 
 type searchListing struct {
-	ViewCount          int64      `json:"view_count"`
-	ID                 int64      `json:"id"`
-	PublicListingID    string     `json:"public_listing_id"`
-	Slug               string     `json:"slug"`
-	Title              string     `json:"title"`
-	TitleEN            string     `json:"title_en,omitempty"`
-	Description        string     `json:"description"`
-	DescriptionEN      string     `json:"description_en,omitempty"`
-	PropertyTypeCode   string     `json:"property_type_code"`
-	AccommodationModel string     `json:"accommodation_model"`
-	UsageType          string     `json:"usage_type"`
-	ListingType        string     `json:"listing_type"`
-	ProjectName        string     `json:"project_name"`
-	ProjectPublicID    string     `json:"project_public_id,omitempty"`
-	ProjectSlug        string     `json:"project_slug,omitempty"`
-	ProjectNameEN      string     `json:"project_name_en,omitempty"`
-	ProjectCategory    string     `json:"project_category,omitempty"`
-	Address            string     `json:"address"`
-	AddressEN          string     `json:"address_en,omitempty"`
-	Province           string     `json:"province"`
-	ProvinceEN         string     `json:"province_en,omitempty"`
-	District           string     `json:"district"`
-	DistrictEN         string     `json:"district_en,omitempty"`
-	SubdistrictEN      string     `json:"subdistrict_en,omitempty"`
-	RoadEN             string     `json:"road_en,omitempty"`
-	SalePrice          *float64   `json:"sale_price,omitempty"`
-	RentPriceMonthly   *float64   `json:"rent_price_monthly,omitempty"`
-	Currency           string     `json:"currency"`
-	BedroomCount       *int       `json:"bedroom_count,omitempty"`
-	BathroomCount      *int       `json:"bathroom_count,omitempty"`
-	UsableAreaSqm      *float64   `json:"usable_area_sqm,omitempty"`
-	LandAreaSqm        *float64   `json:"land_area_sqm,omitempty"`
-	PetAllowed         bool       `json:"pet_allowed"`
-	Latitude           *float64   `json:"latitude,omitempty"`
-	Longitude          *float64   `json:"longitude,omitempty"`
-	PublishedAt        *time.Time `json:"published_at,omitempty"`
-	UpdatedAt          *time.Time `json:"updated_at,omitempty"`
-	SpaceTypeCode      string     `json:"space_type_code"`
-	SpaceTypeCodes     []string   `json:"space_type_codes"`
-	PrimaryImageURL    string     `json:"primary_image_url"`
-	ImageURLs          []string   `json:"image_urls"`
-	EventName          string     `json:"event_name"`
-	EventFloorLabel    string     `json:"event_floor_label"`
-	EventRoundCount    int        `json:"event_round_count"`
-	EventStartsOn      *time.Time `json:"event_starts_on,omitempty"`
-	EventEndsOn        *time.Time `json:"event_ends_on,omitempty"`
-	PriceOnRequest     bool       `json:"price_on_request"`
-	OfferType          string     `json:"offer_type"`
-	OfferAmount        *float64   `json:"offer_amount,omitempty"`
-	OfferPriceUnit     string     `json:"offer_price_unit"`
-	TemporarySpaceDays *int       `json:"temporary_space_duration_days,omitempty"`
-	IsVerified         bool       `json:"is_verified"`
-	SourceType         string     `json:"source_type"`
-	MapPromotionTier   string     `json:"map_promotion_tier"`
-	MapPriorityWeight  int        `json:"map_priority_weight"`
-	IsMapPromoted      bool       `json:"is_map_promoted"`
+	ViewCount           int64      `json:"view_count"`
+	ID                  int64      `json:"id"`
+	PublicListingID     string     `json:"public_listing_id"`
+	Slug                string     `json:"slug"`
+	Title               string     `json:"title"`
+	TitleEN             string     `json:"title_en,omitempty"`
+	Description         string     `json:"description"`
+	DescriptionEN       string     `json:"description_en,omitempty"`
+	PropertyTypeCode    string     `json:"property_type_code"`
+	AccommodationModel  string     `json:"accommodation_model"`
+	UsageType           string     `json:"usage_type"`
+	ListingType         string     `json:"listing_type"`
+	ProjectName         string     `json:"project_name"`
+	ProjectPublicID     string     `json:"project_public_id,omitempty"`
+	ProjectSlug         string     `json:"project_slug,omitempty"`
+	ProjectNameEN       string     `json:"project_name_en,omitempty"`
+	ProjectCategory     string     `json:"project_category,omitempty"`
+	ProjectLatitude     *float64   `json:"project_latitude,omitempty"`
+	ProjectLongitude    *float64   `json:"project_longitude,omitempty"`
+	ProjectListingCount int        `json:"project_listing_count,omitempty"`
+	Address             string     `json:"address"`
+	AddressEN           string     `json:"address_en,omitempty"`
+	Province            string     `json:"province"`
+	ProvinceEN          string     `json:"province_en,omitempty"`
+	District            string     `json:"district"`
+	DistrictEN          string     `json:"district_en,omitempty"`
+	SubdistrictEN       string     `json:"subdistrict_en,omitempty"`
+	RoadEN              string     `json:"road_en,omitempty"`
+	SalePrice           *float64   `json:"sale_price,omitempty"`
+	RentPriceMonthly    *float64   `json:"rent_price_monthly,omitempty"`
+	Currency            string     `json:"currency"`
+	BedroomCount        *int       `json:"bedroom_count,omitempty"`
+	BathroomCount       *int       `json:"bathroom_count,omitempty"`
+	UsableAreaSqm       *float64   `json:"usable_area_sqm,omitempty"`
+	LandAreaSqm         *float64   `json:"land_area_sqm,omitempty"`
+	PetAllowed          bool       `json:"pet_allowed"`
+	Latitude            *float64   `json:"latitude,omitempty"`
+	Longitude           *float64   `json:"longitude,omitempty"`
+	PublishedAt         *time.Time `json:"published_at,omitempty"`
+	UpdatedAt           *time.Time `json:"updated_at,omitempty"`
+	SpaceTypeCode       string     `json:"space_type_code"`
+	SpaceTypeCodes      []string   `json:"space_type_codes"`
+	PrimaryImageURL     string     `json:"primary_image_url"`
+	ImageURLs           []string   `json:"image_urls"`
+	EventName           string     `json:"event_name"`
+	EventFloorLabel     string     `json:"event_floor_label"`
+	EventRoundCount     int        `json:"event_round_count"`
+	EventStartsOn       *time.Time `json:"event_starts_on,omitempty"`
+	EventEndsOn         *time.Time `json:"event_ends_on,omitempty"`
+	PriceOnRequest      bool       `json:"price_on_request"`
+	OfferType           string     `json:"offer_type"`
+	OfferAmount         *float64   `json:"offer_amount,omitempty"`
+	OfferPriceUnit      string     `json:"offer_price_unit"`
+	TemporarySpaceDays  *int       `json:"temporary_space_duration_days,omitempty"`
+	IsVerified          bool       `json:"is_verified"`
+	SourceType          string     `json:"source_type"`
+	MapPromotionTier    string     `json:"map_promotion_tier"`
+	MapPriorityWeight   int        `json:"map_priority_weight"`
+	IsMapPromoted       bool       `json:"is_map_promoted"`
 }
 
 type searchBounds struct {
@@ -831,6 +834,10 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		query := strings.TrimSpace(c.Query("q"))
 		mapView := c.Query("view") == "map"
 		identifier := strings.TrimSpace(c.Query("identifier"))
+		project := strings.TrimSpace(c.Query("project"))
+		if c.Context().QueryArgs().Has("project") && (project == "" || len(project) > 200) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "project identifier is required"})
+		}
 		if c.Context().QueryArgs().Has("identifier") && identifier == "" {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "listing identifier is required"})
 		}
@@ -874,6 +881,9 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		// a recent catalogue page and searching it hides older published listings.
 		if identifier != "" {
 			where = append(where, listingIdentifierPredicate(identifier, arg))
+		}
+		if project != "" {
+			where = append(where, projectIdentifierPredicate(project, arg))
 		}
 		directPropertyTypes := allowedQueryValues(c, "property_type", searchablePropertyTypes)
 		for _, propertyType := range directPropertyTypes {
@@ -1107,7 +1117,13 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			l.property_type_code, COALESCE(l.accommodation_model,''), COALESCE(l.usage_type,''), l.listing_type,
 			COALESCE(project.name_th,l.custom_project_name,''),
 			COALESCE(project.public_project_id::text,''), COALESCE(project.slug,''),
-			COALESCE(project.name_en,''), COALESCE(project.project_category,''),
+			COALESCE(project.name_en,''), COALESCE(project.project_category,''), project.latitude, project.longitude,
+			(SELECT COUNT(*) FROM public.listings project_unit
+			 WHERE project_unit.project_id = project.id
+			   AND project_unit.published_at IS NOT NULL AND project_unit.deleted_at IS NULL
+			   AND project_unit.is_active = true AND project_unit.listing_status = 'active'
+			   AND project_unit.moderation_status = 'approved'
+			   AND (project_unit.expires_at IS NULL OR project_unit.expires_at > now())),
 			trim(concat_ws(' ',l.address_line1,l.address_line2)),
 			trim(concat_ws(' ',lt_en.address_line1,lt_en.address_line2)),
 			COALESCE(l.province_name,''), COALESCE(lt_en.province_name,''),
@@ -1216,11 +1232,17 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		total := 0
 		for rows.Next() {
 			var item searchListing
-			var sale, rent, area, landArea, lat, lng, offerAmount sql.NullFloat64
+			var sale, rent, area, landArea, lat, lng, offerAmount, projectLat, projectLon sql.NullFloat64
 			var beds, baths, temporarySpaceDays sql.NullInt64
 			var published, updated, eventStartsOn, eventEndsOn sql.NullTime
-			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.TitleEN, &item.Description, &item.DescriptionEN, &item.PropertyTypeCode, &item.AccommodationModel, &item.UsageType, &item.ListingType, &item.ProjectName, &item.ProjectPublicID, &item.ProjectSlug, &item.ProjectNameEN, &item.ProjectCategory, &item.Address, &item.AddressEN, &item.Province, &item.ProvinceEN, &item.District, &item.DistrictEN, &item.SubdistrictEN, &item.RoadEN, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &updated, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, pq.Array(&item.ImageURLs), &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.OfferType, &offerAmount, &item.OfferPriceUnit, &item.Currency, &temporarySpaceDays, &item.IsVerified, &item.SourceType, &item.MapPromotionTier, &item.MapPriorityWeight, &item.IsMapPromoted, &item.ViewCount, &total); err != nil {
+			if err := rows.Scan(&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.TitleEN, &item.Description, &item.DescriptionEN, &item.PropertyTypeCode, &item.AccommodationModel, &item.UsageType, &item.ListingType, &item.ProjectName, &item.ProjectPublicID, &item.ProjectSlug, &item.ProjectNameEN, &item.ProjectCategory, &projectLat, &projectLon, &item.ProjectListingCount, &item.Address, &item.AddressEN, &item.Province, &item.ProvinceEN, &item.District, &item.DistrictEN, &item.SubdistrictEN, &item.RoadEN, &sale, &rent, &beds, &baths, &area, &landArea, &item.PetAllowed, &lat, &lng, &published, &updated, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes), &item.PrimaryImageURL, pq.Array(&item.ImageURLs), &item.EventName, &item.EventFloorLabel, &item.EventRoundCount, &eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.OfferType, &offerAmount, &item.OfferPriceUnit, &item.Currency, &temporarySpaceDays, &item.IsVerified, &item.SourceType, &item.MapPromotionTier, &item.MapPriorityWeight, &item.IsMapPromoted, &item.ViewCount, &total); err != nil {
 				return c.Status(500).JSON(fiber.Map{"error": "cannot read properties"})
+			}
+			if projectLat.Valid {
+				item.ProjectLatitude = &projectLat.Float64
+			}
+			if projectLon.Valid {
+				item.ProjectLongitude = &projectLon.Float64
 			}
 			if sale.Valid {
 				item.SalePrice = &sale.Float64
