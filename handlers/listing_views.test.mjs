@@ -7,6 +7,23 @@ import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 const { PGlite } = await import(pathToFileURL(process.env.PGLITE_MODULE_PATH).href);
 
+test('migration preserves the existing production integer view counter', async (t) => {
+  const db = new PGlite();
+  t.after(() => db.close());
+  await db.exec(`CREATE TABLE public.listings (
+    id bigserial PRIMARY KEY, public_listing_id uuid UNIQUE NOT NULL,
+    published_at timestamptz DEFAULT now(), is_active boolean DEFAULT true,
+    deleted_at timestamptz, listing_status text DEFAULT 'active',
+    moderation_status text DEFAULT 'approved', expires_at timestamptz,
+    view_count integer NOT NULL DEFAULT 0
+  );`);
+  const id = randomUUID();
+  await db.query('INSERT INTO listings(public_listing_id,view_count) VALUES($1,7)', [id]);
+  await db.exec(await readFile(new URL('../database/migrations/0156_listing_views.sql', import.meta.url), 'utf8'));
+  assert.equal((await db.query('SELECT view_count FROM listings')).rows[0].view_count, 7);
+  assert.deepEqual((await db.query('SELECT * FROM record_listing_view($1,$2,$3)', [id,randomUUID(),'listing_page'])).rows, [{view_count:8,counted:true}]);
+});
+
 test('public opening counts persist, refreshes count, and retries are idempotent', async (t) => {
   const db = new PGlite();
   t.after(() => db.close());

@@ -1,5 +1,6 @@
 -- Counts begin at zero and are increased only by a recorded public opening.
-ALTER TABLE public.listings ADD COLUMN view_count bigint NOT NULL DEFAULT 0 CHECK (view_count >= 0);
+-- The original production schema already has an integer counter. Preserve it.
+ALTER TABLE public.listings ADD COLUMN IF NOT EXISTS view_count bigint NOT NULL DEFAULT 0 CHECK (view_count >= 0);
 
 CREATE TABLE public.listing_view_events (
     listing_id bigint NOT NULL REFERENCES public.listings(id) ON DELETE CASCADE,
