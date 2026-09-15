@@ -182,7 +182,7 @@ func loadSavedListings(ctx context.Context, db *sql.DB, userID int64) ([]searchL
 			COALESCE(event_details.event_name, ''), COALESCE(event_details.venue_floor_label, ''),
 			COALESCE(event_rounds.round_count, 0), event_rounds.starts_on, event_rounds.ends_on,
 			COALESCE((category_details.details->>'price_on_request')::boolean, event_details.price_on_request, false),
-			listing.is_verified, COALESCE(source.source_type, '')
+			listing.is_verified, COALESCE(source.source_type, ''), listing.view_count
 		FROM public.user_saved_listings saved
 		JOIN public.listings listing ON listing.id = saved.listing_id
 		LEFT JOIN public.listing_translations translation
@@ -250,7 +250,7 @@ func loadSavedListings(ctx context.Context, db *sql.DB, userID int64) ([]searchL
 			&sale, &rent, &item.Currency, &bedrooms, &bathrooms, &area, &landArea, &item.PetAllowed,
 			&latitude, &longitude, &publishedAt, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes),
 			&item.PrimaryImageURL, &item.EventName, &item.EventFloorLabel, &item.EventRoundCount,
-			&eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.IsVerified, &item.SourceType,
+			&eventStartsOn, &eventEndsOn, &item.PriceOnRequest, &item.IsVerified, &item.SourceType, &item.ViewCount,
 		); err != nil {
 			return nil, nil, err
 		}

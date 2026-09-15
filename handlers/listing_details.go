@@ -91,6 +91,7 @@ type listingEventResponse struct {
 }
 
 type listingDetailResponse struct {
+	ViewCount                int64                            `json:"view_count"`
 	ID                       int64                            `json:"id"`
 	PublicListingID          string                           `json:"public_listing_id"`
 	Slug                     string                           `json:"slug"`
@@ -230,7 +231,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				led.audience_segments, led.accepted_product_categories,
 				led.application_instructions, led.floor_plan_url,
 				COALESCE((lcd.details->>'price_on_request')::boolean, led.price_on_request),
-				led.booth_size_on_request, led.source_published_at
+				led.booth_size_on_request, led.source_published_at, l.view_count
 			FROM public.listings l
 			LEFT JOIN public.listing_translations lt_en
 				ON lt_en.listing_id = l.id
@@ -279,7 +280,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			&publishedAt, &updatedAt, &expiresAt, &item.IsVerified, &rawCategoryDetails,
 			&eventName, &organizerName, &organizerWebsiteURL, &organizerVerificationStatus, &venueName, &venueFloor,
 			&audienceSegments, &acceptedProducts, &applicationInstructions, &floorPlanURL,
-			&priceOnRequest, &boothSizeOnRequest, &sourcePublishedAt,
+			&priceOnRequest, &boothSizeOnRequest, &sourcePublishedAt, &item.ViewCount,
 		)
 		if err == sql.ErrNoRows {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "listing not found"})

@@ -57,6 +57,7 @@ func SetupRoutes(app *fiber.App, db *sql.DB) {
 	api.Get("/projects/:identifier", handlers.GetPropertyProject(db))
 	api.Post("/listings", handlers.CreateListing(db))
 	api.Get("/listings/:slug", handlers.GetListingBySlug(db))
+	api.Post("/listings/:publicListingID/views", handlers.RecordListingView(db))
 	api.Post("/listing-media", handlers.UploadListingMedia(db))
 	api.Get("/listing-media/files/:userID/:filename", handlers.ServeListingMedia)
 	api.Get("/listing-draft", handlers.GetListingDraft(db))
