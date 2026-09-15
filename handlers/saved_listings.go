@@ -166,7 +166,8 @@ func loadSavedListings(ctx context.Context, db *sql.DB, userID int64) ([]searchL
 			listing.id, listing.public_listing_id::text, COALESCE(listing.slug, ''), listing.title,
 			COALESCE(translation.title, ''), COALESCE(listing.description, ''), COALESCE(translation.description, ''), listing.property_type_code,
 			COALESCE(listing.accommodation_model, ''), listing.listing_type,
-			COALESCE(listing.custom_project_name, ''),
+			COALESCE(project.name_th, listing.custom_project_name, ''),
+			COALESCE(NULLIF(trim(project.name_en), ''), listing.custom_project_name_en, ''),
 			trim(concat_ws(' ', listing.address_line1, listing.address_line2)),
 			trim(concat_ws(' ', translation.address_line1, translation.address_line2)),
 			COALESCE(listing.province_name, ''), COALESCE(translation.province_name, ''),
@@ -185,6 +186,7 @@ func loadSavedListings(ctx context.Context, db *sql.DB, userID int64) ([]searchL
 			listing.is_verified, COALESCE(source.source_type, ''), listing.view_count
 		FROM public.user_saved_listings saved
 		JOIN public.listings listing ON listing.id = saved.listing_id
+		LEFT JOIN public.property_projects project ON project.id = listing.project_id AND project.is_active = true AND project.deleted_at IS NULL
 		LEFT JOIN public.listing_translations translation
 			ON translation.listing_id = listing.id
 			AND translation.language_code = 'en'
@@ -246,7 +248,7 @@ func loadSavedListings(ctx context.Context, db *sql.DB, userID int64) ([]searchL
 		if err := rows.Scan(
 			&item.ID, &item.PublicListingID, &item.Slug, &item.Title, &item.TitleEN,
 			&item.Description, &item.DescriptionEN, &item.PropertyTypeCode, &item.AccommodationModel, &item.ListingType,
-			&item.ProjectName, &item.Address, &item.AddressEN, &item.Province, &item.ProvinceEN, &item.District, &item.DistrictEN, &item.SubdistrictEN, &item.RoadEN,
+			&item.ProjectName, &item.ProjectNameEN, &item.Address, &item.AddressEN, &item.Province, &item.ProvinceEN, &item.District, &item.DistrictEN, &item.SubdistrictEN, &item.RoadEN,
 			&sale, &rent, &item.Currency, &bedrooms, &bathrooms, &area, &landArea, &item.PetAllowed,
 			&latitude, &longitude, &publishedAt, &item.SpaceTypeCode, pq.Array(&item.SpaceTypeCodes),
 			&item.PrimaryImageURL, &item.EventName, &item.EventFloorLabel, &item.EventRoundCount,

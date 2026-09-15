@@ -341,6 +341,10 @@ func CreateListing(db *sql.DB) fiber.Handler {
 				usage_type = EXCLUDED.usage_type,
 				listing_type = EXCLUDED.listing_type,
 				custom_project_name = EXCLUDED.custom_project_name,
+				custom_project_name_en = CASE
+					WHEN listings.custom_project_name IS NOT DISTINCT FROM EXCLUDED.custom_project_name THEN listings.custom_project_name_en
+					ELSE ''
+				END,
 				custom_unit_number = EXCLUDED.custom_unit_number,
 				title = EXCLUDED.title,
 				description = EXCLUDED.description,

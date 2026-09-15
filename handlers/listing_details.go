@@ -204,7 +204,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				l.listing_type, l.listing_scope, COALESCE(l.space_type_code, ''),
 				COALESCE(project.name_th, l.custom_project_name, ''),
 				COALESCE(project.public_project_id::text, ''), COALESCE(project.slug, ''),
-				COALESCE(project.name_en, ''), COALESCE(project.project_category, ''),
+				COALESCE(NULLIF(trim(project.name_en), ''), l.custom_project_name_en, ''), COALESCE(project.project_category, ''),
 				COALESCE(l.custom_building_name, ''),
 				trim(concat_ws(' ', l.address_line1, l.address_line2)),
 				trim(concat_ws(' ', lt_en.address_line1, lt_en.address_line2)),

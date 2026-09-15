@@ -678,9 +678,9 @@ func PropertySearchSuggestions(db *sql.DB) fiber.Handler {
 
 				UNION ALL
 				SELECT 'project',
-					CASE WHEN $3 = 'en' AND NULLIF(p.name_en, '') IS NOT NULL THEN p.name_en ELSE p.name_th END,
+					COALESCE(NULLIF(trim(p.name_en), ''), p.name_th),
 					p.project_category,
-					CASE WHEN $3 = 'en' AND NULLIF(p.name_en, '') IS NOT NULL THEN p.name_en ELSE p.name_th END,
+					COALESCE(NULLIF(trim(p.name_en), ''), p.name_th),
 					110,
 					greatest(
 						similarity(lower(p.name_th), $1),
@@ -728,19 +728,20 @@ func PropertySearchSuggestions(db *sql.DB) fiber.Handler {
 				  )
 
 				UNION ALL
-				SELECT 'location', place.name, place.kind, place.name, place.priority,
-					similarity(lower(place.name), $1),
+				SELECT 'location', place.display_name, place.kind, place.display_name, place.priority,
+					greatest(similarity(lower(place.name), $1), similarity(lower(place.display_name), $1)),
 					CASE
-						WHEN lower(place.name) = $1 THEN 4
-						WHEN lower(place.name) LIKE $1 || '%' THEN 3
+						WHEN lower(place.name) = $1 OR lower(place.display_name) = $1 THEN 4
+						WHEN lower(place.name) LIKE $1 || '%' OR lower(place.display_name) LIKE $1 || '%' THEN 3
 						ELSE 1
 					END
 				FROM public.listings l
+				LEFT JOIN public.property_projects project ON project.id = l.project_id AND project.is_active = true AND project.deleted_at IS NULL
 				CROSS JOIN LATERAL (
 					VALUES
-						(NULLIF(trim(l.custom_project_name), ''), 'project', 96),
-						(NULLIF(trim(l.custom_building_name), ''), 'building', 94)
-				) AS place(name, kind, priority)
+						(NULLIF(trim(l.custom_project_name), ''), COALESCE(NULLIF(trim(project.name_en), ''), NULLIF(trim(l.custom_project_name_en), ''), NULLIF(trim(l.custom_project_name), '')), 'project', 96),
+						(NULLIF(trim(l.custom_building_name), ''), NULLIF(trim(l.custom_building_name), ''), 'building', 94)
+				) AS place(name, display_name, kind, priority)
 				WHERE place.name IS NOT NULL
 				  AND l.published_at IS NOT NULL
 				  AND l.deleted_at IS NULL
@@ -748,8 +749,8 @@ func PropertySearchSuggestions(db *sql.DB) fiber.Handler {
 				  AND l.listing_status = 'active'
 				  AND l.moderation_status = 'approved'
 				  AND (l.expires_at IS NULL OR l.expires_at > now())
-				  AND lower(place.name) ILIKE '%' || $1 || '%'
-				GROUP BY place.name, place.kind, place.priority
+				  AND (lower(place.name) ILIKE '%' || $1 || '%' OR lower(place.display_name) ILIKE '%' || $1 || '%')
+				GROUP BY place.name, place.display_name, place.kind, place.priority
 
 				UNION ALL
 				SELECT 'listing', l.title, 'listing', l.title, 90,
@@ -1038,7 +1039,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		if intent.FreeText != "" {
 			freeTextPatternArg := arg("%" + intent.FreeText + "%")
 			freeTextArg := arg(intent.FreeText)
-			where = append(where, `(l.search_text ILIKE `+freeTextPatternArg+` OR EXISTS (
+			where = append(where, `(l.search_text ILIKE `+freeTextPatternArg+` OR l.custom_project_name_en ILIKE `+freeTextPatternArg+` OR EXISTS (
 				SELECT 1
 				FROM public.listing_translations translation
 				WHERE translation.listing_id = l.id
@@ -1117,7 +1118,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			l.property_type_code, COALESCE(l.accommodation_model,''), COALESCE(l.usage_type,''), l.listing_type,
 			COALESCE(project.name_th,l.custom_project_name,''),
 			COALESCE(project.public_project_id::text,''), COALESCE(project.slug,''),
-			COALESCE(project.name_en,''), COALESCE(project.project_category,''), project.latitude, project.longitude,
+			COALESCE(NULLIF(trim(project.name_en), ''), l.custom_project_name_en, ''), COALESCE(project.project_category,''), project.latitude, project.longitude,
 			(SELECT COUNT(*) FROM public.listings project_unit
 			 WHERE project_unit.project_id = project.id
 			   AND project_unit.published_at IS NOT NULL AND project_unit.deleted_at IS NULL
