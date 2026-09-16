@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -89,7 +91,7 @@ func UploadListingMedia(db *sql.DB) fiber.Handler {
 		if sampleSize == 0 {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "media file is empty"})
 		}
-		mimeType := http.DetectContentType(sample[:sampleSize])
+		mimeType := detectListingMediaContentType(sample[:sampleSize])
 		extension, ok := rule.extensions[mimeType]
 		if !ok {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "unsupported media file format"})
@@ -130,6 +132,24 @@ func UploadListingMedia(db *sql.DB) fiber.Handler {
 			"size":       written,
 		})
 	}
+}
+
+// net/http recognizes MP4-branded files, but misses QuickTime and some camera
+// M4V/ISO-base-media brands. Inspect the bounded ftyp atom, never the filename or
+// multipart Content-Type, before accepting these additional video containers.
+func detectListingMediaContentType(data []byte) string {
+	if len(data) >= 16 && bytes.Equal(data[4:8], []byte("ftyp")) {
+		size := int(binary.BigEndian.Uint32(data[:4]))
+		if size >= 16 && size <= len(data) && size%4 == 0 {
+			switch string(data[8:12]) {
+			case "qt  ":
+				return "video/quicktime"
+			case "M4V ", "M4VH", "M4VP", "mp41", "mp42", "isom", "iso2", "iso3", "iso4", "iso5", "iso6", "avc1", "MSNV":
+				return "video/mp4"
+			}
+		}
+	}
+	return http.DetectContentType(data)
 }
 
 func ServeListingMedia(c *fiber.Ctx) error {
