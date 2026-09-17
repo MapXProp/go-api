@@ -2360,6 +2360,19 @@ func assertIntegrationListingDetailReadable(
 
 func assertIntegrationPublicOffer(t *testing.T, detail listingDetailResponse, category listingCategoryIntegrationCase, payload createListingRequest) {
 	t.Helper()
+	if detail.PriceOnRequest != payload.PriceOnRequest {
+		t.Fatalf("public price-on-request mismatch: got=%v want=%v", detail.PriceOnRequest, payload.PriceOnRequest)
+	}
+	if payload.PriceOnRequest {
+		if detail.SalePrice != nil || detail.RentPriceMonthly != nil {
+			t.Fatal("price-on-request details must not expose sale or monthly rental amounts")
+		}
+	} else {
+		assertIntegrationOptionalFloat(t, "public sale price", detail.SalePrice, payload.SalePrice)
+		if category.propertyType != "retail_space" {
+			assertIntegrationOptionalFloat(t, "public monthly rental price", detail.RentPriceMonthly, payload.RentPriceMonthly)
+		}
+	}
 	expectedType := category.offerTypes[0]
 	if inSet("rent", category.offerTypes...) {
 		expectedType = "rent"

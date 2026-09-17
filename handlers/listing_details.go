@@ -154,6 +154,9 @@ type listingDetailResponse struct {
 	OrganizationLogoURL      string                           `json:"organization_logo_url,omitempty"`
 	OfferType                string                           `json:"offer_type"`
 	OfferAmount              *float64                         `json:"offer_amount,omitempty"`
+	SalePrice                *float64                         `json:"sale_price,omitempty"`
+	RentPriceMonthly         *float64                         `json:"rent_price_monthly,omitempty"`
+	PriceOnRequest           bool                             `json:"price_on_request"`
 	PriceUnit                string                           `json:"price_unit"`
 	PriceNegotiable          bool                             `json:"price_negotiable"`
 	Currency                 string                           `json:"currency"`
@@ -186,6 +189,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 
 		var item listingDetailResponse
 		var latitude, longitude, amount, depositAmount, advanceAmount, serviceFee, usableAreaSqm, landAreaSqm sql.NullFloat64
+		var salePrice, rentPriceMonthly sql.NullFloat64
 		var bedroomCount, bathroomCount, parkingCount, floorNo, totalFloors, minimumContractMonths sql.NullInt64
 		var publishedAt, updatedAt, expiresAt, sourcePublishedAt sql.NullTime
 		var rawCategoryDetails []byte
@@ -233,7 +237,8 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				led.audience_segments, led.accepted_product_categories,
 				led.application_instructions, led.floor_plan_url,
 				COALESCE((lcd.details->>'price_on_request')::boolean, led.price_on_request),
-				led.booth_size_on_request, led.source_published_at, l.view_count
+				led.booth_size_on_request, led.source_published_at, l.view_count,
+				l.sale_price, l.rent_price_monthly
 			FROM public.listings l
 			LEFT JOIN public.listing_translations lt_en
 				ON lt_en.listing_id = l.id
@@ -283,6 +288,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			&eventName, &organizerName, &organizerWebsiteURL, &organizerVerificationStatus, &venueName, &venueFloor,
 			&audienceSegments, &acceptedProducts, &applicationInstructions, &floorPlanURL,
 			&priceOnRequest, &boothSizeOnRequest, &sourcePublishedAt, &item.ViewCount,
+			&salePrice, &rentPriceMonthly,
 		)
 		if err == sql.ErrNoRows {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "listing not found"})
@@ -330,7 +336,16 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			}
 		}
 		hideInternalListingMetadata(item.CategoryDetails)
-		if amount.Valid {
+		item.PriceOnRequest = priceOnRequest.Valid && priceOnRequest.Bool
+		if !item.PriceOnRequest {
+			if salePrice.Valid && salePrice.Float64 > 0 {
+				item.SalePrice = &salePrice.Float64
+			}
+			if rentPriceMonthly.Valid && rentPriceMonthly.Float64 > 0 {
+				item.RentPriceMonthly = &rentPriceMonthly.Float64
+			}
+		}
+		if amount.Valid && !item.PriceOnRequest {
 			item.OfferAmount = &amount.Float64
 		}
 		if depositAmount.Valid {
