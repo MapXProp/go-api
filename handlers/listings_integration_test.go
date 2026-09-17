@@ -50,6 +50,7 @@ var selectableListingCategoryCases = []listingCategoryIntegrationCase{
 	{propertyType: "flat", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"residential"}, offerTypes: []string{"rent"}, usageType: "residence", listingType: "rent"},
 	{propertyType: "serviced_apartment", expectedPropertyType: "apartment", expectedAccommodationModel: "serviced", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"residential", "hospitality"}, offerTypes: []string{"rent"}, usageType: "mixed", listingType: "rent"},
 	{propertyType: "monthly_hotel", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"hospitality"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent"},
+	{propertyType: "apartment", expectedPropertyType: "apartment", expectedAccommodationModel: "standard", propertyGroup: "residential", discoveryChannel: "business", listingScope: "whole_property", useCases: []string{"residential"}, offerTypes: []string{"sale"}, usageType: "residence", listingType: "sale"},
 	{propertyType: "office", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "single_unit", useCases: []string{"office"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent"},
 	{propertyType: "retail_space", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "space_slot", useCases: []string{"retail", "food_service"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent", spaceTypes: []string{"market_stall", "event_booth"}},
 	{propertyType: "warehouse", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "whole_property", useCases: []string{"storage"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent"},
@@ -69,8 +70,8 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 		t.Fatal("load integration database environment:", err)
 	}
 	requireSafeIntegrationDatabase(t)
-	if len(selectableListingCategoryCases) != 22 {
-		t.Fatalf("integration matrix must cover 18 property types and every selectable discovery-channel route, got %d", len(selectableListingCategoryCases))
+	if len(selectableListingCategoryCases) != 23 {
+		t.Fatalf("integration matrix must cover every selectable discovery-channel route, including whole-building apartments, got %d", len(selectableListingCategoryCases))
 	}
 
 	db := database.ConnectDB()
@@ -1197,6 +1198,9 @@ func integrationCategoryDetails(category listingCategoryIntegrationCase) map[str
 	}
 	if category.discoveryChannel == "business" {
 		details["details_status"] = "structured"
+		if category.propertyType == "apartment" {
+			details["accommodation_model"] = "standard"
+		}
 		if category.propertyType != "land" {
 			details["available_from"] = "2026-09-15"
 			details["year_built"] = "2563"
@@ -1825,7 +1829,7 @@ func assertIntegrationListingPersisted(
 			}
 		} else {
 			expectedBedrooms := 0
-			if category.propertyGroup == "mixed_use" {
+			if category.propertyGroup == "mixed_use" || category.propertyType == "apartment" {
 				expectedBedrooms = 2
 			}
 			expectedBathrooms := 2
@@ -1856,7 +1860,12 @@ func assertIntegrationListingPersisted(
 	if images != 1 || videos != 1 || panoramas != 1 || primaryImages != 1 || videoRoles != 1 || panoramaRoles != 1 {
 		t.Fatalf("media mismatch: images=%d videos=%d panoramas=%d primary=%d videoRoles=%d panoramaRoles=%d", images, videos, panoramas, primaryImages, videoRoles, panoramaRoles)
 	}
-	if spaceTypes != len(category.spaceTypes) || amenities != len(payload.Amenities) || useCases != len(category.useCases) || offers != len(category.offerTypes) || exactOfferTerms != offers || discoveryChannels != 1 {
+	// Mixed-use properties also retain the residential use enforced by migration 0088.
+	expectedUseCases := append([]string(nil), category.useCases...)
+	if category.usageType == "mixed" && !inSet("residential", expectedUseCases...) {
+		expectedUseCases = append(expectedUseCases, "residential")
+	}
+	if spaceTypes != len(category.spaceTypes) || amenities != len(payload.Amenities) || useCases != len(expectedUseCases) || offers != len(category.offerTypes) || exactOfferTerms != offers || discoveryChannels != 1 {
 		t.Fatalf("relation count mismatch: spaces=%d amenities=%d useCases=%d offers=%d exactOfferTerms=%d requestedChannel=%d", spaceTypes, amenities, useCases, offers, exactOfferTerms, discoveryChannels)
 	}
 	expectedBusinessDetails := 0
@@ -1900,7 +1909,7 @@ func assertIntegrationListingPersisted(
 	}
 	assertIntegrationEventPersisted(t, db, listingID, payload)
 
-	for _, useCase := range category.useCases {
+	for _, useCase := range expectedUseCases {
 		assertIntegrationRelation(t, db, `SELECT count(*) FROM public.listing_use_cases WHERE listing_id = $1 AND use_case_code = $2`, listingID, useCase)
 	}
 	for _, offerType := range category.offerTypes {
@@ -2307,9 +2316,9 @@ func assertIntegrationListingDetailReadable(
 			if detail.FurnishingStatus != expectedFurnishing {
 				t.Fatalf("public business furnishing mismatch for %s: got=%q want=%q", category.propertyType, detail.FurnishingStatus, expectedFurnishing)
 			}
-			if category.propertyGroup == "mixed_use" {
+			if category.propertyGroup == "mixed_use" || category.propertyType == "apartment" {
 				if detail.BedroomCount == nil || *detail.BedroomCount != 2 {
-					t.Fatalf("public mixed-use bedroom data mismatch for %s: %#v", category.propertyType, detail.BedroomCount)
+					t.Fatalf("public residential-use bedroom data mismatch for %s: %#v", category.propertyType, detail.BedroomCount)
 				}
 			} else if detail.BedroomCount != nil {
 				t.Fatalf("public commercial detail should not contain bedroom data for %s: %#v", category.propertyType, detail.BedroomCount)
