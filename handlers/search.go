@@ -1167,7 +1167,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			FROM public.listing_event_rounds
 			WHERE listing_id = l.id
 			  AND availability_status IN ('open','limited','waitlist')
-			  AND ends_on >= CURRENT_DATE
+			  AND (l.expires_at IS NULL OR ends_on >= CURRENT_DATE)
 		) er ON true
 		LEFT JOIN LATERAL (
 			SELECT

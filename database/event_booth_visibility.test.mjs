@@ -9,6 +9,7 @@ const { PGlite } = process.env.PGLITE_MODULE_PATH
   ? await import(pathToFileURL(process.env.PGLITE_MODULE_PATH).href)
   : await import('@electric-sql/pglite');
 const migration = await readFile(new URL('./migrations/0175_keep_existing_event_booths_visible.sql', import.meta.url), 'utf8');
+const searchSource = await readFile(new URL('../handlers/search.go', import.meta.url), 'utf8');
 
 test('existing approved events remain visible while schedules and other listing states are preserved', async () => {
   const db = new PGlite();
@@ -51,6 +52,33 @@ test('existing approved events remain visible while schedules and other listing 
       AND (expires_at IS NULL OR expires_at>now()) ORDER BY id`)).rows.map(row => row.id), [1,2]);
     await db.exec(migration);
     assert.deepEqual((await db.query('SELECT * FROM listings ORDER BY id')).rows, after, 'Reapplying is harmless');
+  } finally {
+    await db.close();
+  }
+});
+
+test('search summaries include past rounds when automatic expiry is disabled', async () => {
+  const db = new PGlite();
+  try {
+    await db.exec(`CREATE TABLE listings (id integer, expires_at timestamptz);
+      CREATE TABLE listing_event_rounds (listing_id integer, starts_on date, ends_on date, availability_status text);
+      INSERT INTO listings VALUES (1,NULL),(2,now()+interval '30 days');
+      INSERT INTO listing_event_rounds
+        SELECT id, CURRENT_DATE-10, CURRENT_DATE-5, 'open' FROM listings;
+      INSERT INTO listing_event_rounds
+        SELECT id, CURRENT_DATE+1, CURRENT_DATE+5, 'open' FROM listings;
+      INSERT INTO listing_event_rounds
+        SELECT id, CURRENT_DATE-20, CURRENT_DATE-15, 'closed' FROM listings;`);
+    const summary = searchSource.match(/(SELECT count\(\*\)::integer AS round_count, min\(starts_on\) AS starts_on, max\(ends_on\) AS ends_on\s+FROM public\.listing_event_rounds\s+WHERE listing_id = l\.id[\s\S]*?)\s*\) er ON true/);
+    assert.ok(summary, 'Extract the actual search aggregate');
+    const result = await db.query(`SELECT l.id, er.round_count,
+      er.starts_on = CURRENT_DATE-10 AS includes_past,
+      er.ends_on = CURRENT_DATE+5 AS keeps_future
+      FROM listings l LEFT JOIN LATERAL (${summary[1]}) er ON true ORDER BY l.id`);
+    assert.deepEqual(result.rows, [
+      { id:1, round_count:2, includes_past:true, keeps_future:true },
+      { id:2, round_count:1, includes_past:false, keeps_future:true },
+    ]);
   } finally {
     await db.close();
   }
