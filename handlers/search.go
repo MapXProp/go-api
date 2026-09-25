@@ -836,6 +836,10 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		query := strings.TrimSpace(c.Query("q"))
 		mapView := c.Query("view") == "map"
+		keywordSearch := c.Query("search_mode") == "keyword"
+		if keywordSearch && len([]rune(query)) > 300 {
+			return c.Status(400).JSON(fiber.Map{"error": "search query is too long"})
+		}
 		identifier := strings.TrimSpace(c.Query("identifier"))
 		project := strings.TrimSpace(c.Query("project"))
 		if c.Context().QueryArgs().Has("project") && (project == "" || len(project) > 200) {
@@ -862,7 +866,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		ctx, cancel := context.WithTimeout(c.Context(), 8*time.Second)
 		defer cancel()
 		intent := searchIntent{Query: query, Normalized: normalizeSearchText(query), Locale: searchLocale(query)}
-		if query != "" {
+		if query != "" && !keywordSearch {
 			var err error
 			intent, err = parseIntentFromDB(ctx, db, query)
 			if err != nil {
@@ -1038,6 +1042,14 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			}
 			where = append(where, "EXISTS (SELECT 1 FROM public.listing_offers lo WHERE "+strings.Join(parts, " AND ")+")")
 		}
+		if keywordSearch && query != "" {
+			patterns := listingKeywordPatterns(query)
+			if len(patterns) == 0 {
+				where = append(where, "false")
+			} else {
+				where = append(where, listingKeywordDocumentSQL+" LIKE ALL("+arg(pq.Array(patterns))+"::text[])")
+			}
+		}
 		if intent.FreeText != "" {
 			freeTextPatternArg := arg("%" + intent.FreeText + "%")
 			freeTextArg := arg(intent.FreeText)
@@ -1082,7 +1094,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		limitArg := arg(limit)
 		offsetArg := arg(offset)
 		orderBy := "l.published_at DESC"
-		if intent.Normalized != "" {
+		if intent.Normalized != "" && !keywordSearch {
 			queryArg := arg(intent.Normalized)
 			orderBy = `greatest(
 				similarity(l.search_text, ` + queryArg + `),
