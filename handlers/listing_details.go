@@ -138,6 +138,7 @@ type listingDetailResponse struct {
 	Latitude                 *float64                         `json:"latitude,omitempty"`
 	Longitude                *float64                         `json:"longitude,omitempty"`
 	ContactName              string                           `json:"contact_name"`
+	ContactAvatarURL         string                           `json:"contact_avatar_url,omitempty"`
 	ContactPhone             string                           `json:"contact_phone"`
 	ContactPhoneSecondary    string                           `json:"contact_phone_secondary"`
 	ContactEmail             string                           `json:"contact_email"`
@@ -238,7 +239,10 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				led.application_instructions, led.floor_plan_url,
 				COALESCE((lcd.details->>'price_on_request')::boolean, led.price_on_request),
 				led.booth_size_on_request, led.source_published_at, l.view_count,
-				l.sale_price, l.rent_price_monthly
+				l.sale_price, l.rent_price_monthly,
+				COALESCE(CASE WHEN trim(l.contact_name) = trim(contact_defaults.contact_name)
+					AND trim(l.contact_phone) = trim(contact_defaults.contact_phone)
+					THEN contact_user.avatar_url END, '')
 			FROM public.listings l
 			LEFT JOIN public.listing_translations lt_en
 				ON lt_en.listing_id = l.id
@@ -247,6 +251,8 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 				AND lt_en.deleted_at IS NULL
 			LEFT JOIN public.listing_category_details lcd ON lcd.listing_id = l.id
 			LEFT JOIN public.listing_contact_profiles lcp ON lcp.listing_id = l.id
+			LEFT JOIN public.auth_users contact_user ON contact_user.id = l.user_id AND contact_user.deleted_at IS NULL
+			LEFT JOIN public.user_listing_contact_profiles contact_defaults ON contact_defaults.user_id = contact_user.id
 			LEFT JOIN public.organizations o ON o.id = l.organization_id AND o.is_active = true AND o.deleted_at IS NULL
 			LEFT JOIN public.property_projects project ON project.id = l.project_id AND project.is_active = true AND project.deleted_at IS NULL
 			LEFT JOIN LATERAL (
@@ -288,7 +294,7 @@ func GetListingBySlug(db *sql.DB) fiber.Handler {
 			&eventName, &organizerName, &organizerWebsiteURL, &organizerVerificationStatus, &venueName, &venueFloor,
 			&audienceSegments, &acceptedProducts, &applicationInstructions, &floorPlanURL,
 			&priceOnRequest, &boothSizeOnRequest, &sourcePublishedAt, &item.ViewCount,
-			&salePrice, &rentPriceMonthly,
+			&salePrice, &rentPriceMonthly, &item.ContactAvatarURL,
 		)
 		if err == sql.ErrNoRows {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "listing not found"})

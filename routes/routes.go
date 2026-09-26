@@ -26,6 +26,8 @@ func SetupRoutes(app *fiber.App, db *sql.DB) {
 	api.Post("/logout", handlers.UserLogout(db))
 	api.Get("/me", handlers.GetMe(db))
 	api.Patch("/me", handlers.UpdateMyProfile(db))
+	api.Put("/me/avatar", handlers.UpdateMyAvatar(db))
+	api.Delete("/me/avatar", handlers.DeleteMyAvatar(db))
 	api.Post("/me/password", handlers.ChangeMyPassword(db))
 	api.Get("/me/listings", handlers.GetMyListings(db))
 	api.Get("/me/listings/:publicListingID/edit", handlers.GetMyListingEditDraft(db))

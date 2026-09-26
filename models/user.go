@@ -28,6 +28,7 @@ type UserPublic struct {
 	Surname      string `json:"surname"`
 	Email        string `json:"email"`
 	RoleCode     string `json:"role_code"`
+	AvatarURL    string `json:"avatar_url,omitempty"`
 }
 
 type UserLoginResponse struct {

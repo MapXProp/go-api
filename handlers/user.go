@@ -515,11 +515,12 @@ func UserRefresh(db *sql.DB) fiber.Handler {
 			surname      sql.NullString
 			isActive     bool
 			roleCode     string
+			avatarURL    string
 		)
 
 		err := db.QueryRowContext(ctx, `
 			SELECT s.id, u.id, u.public_user_id::text, u.email, u.name, u.surname,
-			       COALESCE(u.is_active, true), u.role_code
+			       COALESCE(u.is_active, true), u.role_code, COALESCE(u.avatar_url, '')
 			FROM public.auth_sessions s
 			JOIN public.auth_users u ON u.id = s.user_id
 			WHERE s.refresh_token_hash = $1
@@ -536,6 +537,7 @@ func UserRefresh(db *sql.DB) fiber.Handler {
 			&surname,
 			&isActive,
 			&roleCode,
+			&avatarURL,
 		)
 		if err == sql.ErrNoRows {
 			clearAuthCookies(c)
@@ -591,6 +593,7 @@ func UserRefresh(db *sql.DB) fiber.Handler {
 				Surname:      surname.String,
 				Email:        email,
 				RoleCode:     roleCode,
+				AvatarURL:    avatarURL,
 			},
 		})
 	}
@@ -666,10 +669,11 @@ func GetMe(db *sql.DB) fiber.Handler {
 			surname      sql.NullString
 			isActive     bool
 			roleCode     string
+			avatarURL    string
 		)
 
 		err = db.QueryRowContext(ctx, `
-			SELECT id, public_user_id::text, email, name, surname, COALESCE(is_active, true), role_code
+			SELECT id, public_user_id::text, email, name, surname, COALESCE(is_active, true), role_code, COALESCE(avatar_url, '')
 			FROM public.auth_users
 			WHERE id = $1
 			  AND public_user_id::text = $2
@@ -683,6 +687,7 @@ func GetMe(db *sql.DB) fiber.Handler {
 			&surname,
 			&isActive,
 			&roleCode,
+			&avatarURL,
 		)
 		if err == sql.ErrNoRows {
 			return c.Status(401).JSON(fiber.Map{"error": "user not found"})
@@ -703,6 +708,7 @@ func GetMe(db *sql.DB) fiber.Handler {
 				Surname:      surname.String,
 				Email:        email,
 				RoleCode:     roleCode,
+				AvatarURL:    avatarURL,
 			},
 		})
 	}
