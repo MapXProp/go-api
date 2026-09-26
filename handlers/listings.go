@@ -970,6 +970,26 @@ func (req *createListingRequest) normalize() {
 	req.PropertyGroupCode = cleanCode(req.PropertyGroupCode, "residential")
 	req.PropertyTypeCode = cleanCode(req.PropertyTypeCode, "condo")
 	req.AccommodationModel = cleanCode(req.AccommodationModel, "")
+	// Accept saved drafts and older clients that still send apartment buildings.
+	// Inspect the explicit scope before its default: a monthly room stays a room.
+	if inSet(req.PropertyTypeCode, "apartment", "serviced_apartment") &&
+		(req.DiscoveryChannelCode == "business" || cleanCode(req.ListingScope, "") == "whole_property") {
+		subtype := "apartment"
+		if req.PropertyTypeCode == "serviced_apartment" || req.AccommodationModel == "serviced" {
+			subtype = "serviced_residence"
+		}
+		if req.CategoryDetails == nil {
+			req.CategoryDetails = map[string]any{}
+		}
+		req.CategoryDetails["hospitality_property_type"] = subtype
+		req.CategoryDetails["discovery_channel_code"] = "business"
+		req.PropertyTypeCode = "hotel_resort"
+		req.PropertyGroupCode = "commercial"
+		req.DiscoveryChannelCode = "business"
+		req.ListingScope = "whole_property"
+		req.UsageType = "business"
+		req.UseCaseCodes = []string{"hospitality"}
+	}
 	switch req.PropertyTypeCode {
 	case "serviced_apartment":
 		req.PropertyTypeCode = "apartment"

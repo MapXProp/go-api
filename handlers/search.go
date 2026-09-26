@@ -932,7 +932,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		}
 		categoryFilters := []string{}
 		if len(intent.PropertyTypes) > 0 {
-			categoryFilters = append(categoryFilters, "l.property_type_code = ANY("+arg(pq.Array(intent.PropertyTypes))+")")
+			categoryFilters = append(categoryFilters, propertyTypeSearchPredicate(intent.PropertyTypes, arg))
 		}
 		if len(intent.PropertyGroups) > 0 {
 			categoryFilters = append(categoryFilters, "EXISTS (SELECT 1 FROM public.property_types pt WHERE pt.code=l.property_type_code AND pt.group_code = ANY("+arg(pq.Array(intent.PropertyGroups))+"))")
@@ -971,7 +971,7 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 		}
 		directCategoryFilters := []string{}
 		if len(directPropertyTypes) > 0 {
-			directCategoryFilters = append(directCategoryFilters, "l.property_type_code = ANY("+arg(pq.Array(directPropertyTypes))+")")
+			directCategoryFilters = append(directCategoryFilters, propertyTypeSearchPredicate(directPropertyTypes, arg))
 		}
 		if len(directSpaceTypes) > 0 {
 			spaceTypesArg := arg(pq.Array(directSpaceTypes))
@@ -1011,7 +1011,10 @@ func SearchProperties(db *sql.DB) fiber.Handler {
 			if feature == "pet_allowed" {
 				where = append(where, "l.pet_allowed = true")
 			} else if feature == "serviced" {
-				where = append(where, "l.accommodation_model = 'serviced'")
+				where = append(where, `(l.accommodation_model = 'serviced' OR (l.property_type_code = 'hotel_resort' AND EXISTS (
+					SELECT 1 FROM public.listing_category_details serviced_details
+					WHERE serviced_details.listing_id = l.id AND serviced_details.details->>'hospitality_property_type' = 'serviced_residence'
+				)))`)
 			}
 		}
 		if intent.MinPrice != nil || intent.MaxPrice != nil {

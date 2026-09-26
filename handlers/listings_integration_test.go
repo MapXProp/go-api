@@ -26,6 +26,7 @@ type listingCategoryIntegrationCase struct {
 	propertyType               string
 	expectedPropertyType       string
 	expectedAccommodationModel string
+	hospitalityType            string
 	propertyGroup              string
 	discoveryChannel           string
 	listingScope               string
@@ -50,7 +51,7 @@ var selectableListingCategoryCases = []listingCategoryIntegrationCase{
 	{propertyType: "flat", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"residential"}, offerTypes: []string{"rent"}, usageType: "residence", listingType: "rent"},
 	{propertyType: "serviced_apartment", expectedPropertyType: "apartment", expectedAccommodationModel: "serviced", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"residential", "hospitality"}, offerTypes: []string{"rent"}, usageType: "mixed", listingType: "rent"},
 	{propertyType: "monthly_hotel", propertyGroup: "residential", discoveryChannel: "rooms", listingScope: "single_unit", useCases: []string{"hospitality"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent"},
-	{propertyType: "apartment", expectedPropertyType: "apartment", expectedAccommodationModel: "standard", propertyGroup: "residential", discoveryChannel: "business", listingScope: "whole_property", useCases: []string{"residential"}, offerTypes: []string{"sale"}, usageType: "residence", listingType: "sale"},
+	{propertyType: "hotel_resort", hospitalityType: "apartment", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "whole_property", useCases: []string{"hospitality"}, offerTypes: []string{"sale"}, usageType: "business", listingType: "sale"},
 	{propertyType: "office", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "single_unit", useCases: []string{"office"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent"},
 	{propertyType: "retail_space", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "space_slot", useCases: []string{"retail", "food_service"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent", spaceTypes: []string{"market_stall", "event_booth"}},
 	{propertyType: "warehouse", propertyGroup: "commercial", discoveryChannel: "business", listingScope: "whole_property", useCases: []string{"storage"}, offerTypes: []string{"rent"}, usageType: "business", listingType: "rent"},
@@ -1292,6 +1293,9 @@ func integrationCategoryDetails(category listingCategoryIntegrationCase) map[str
 			details["hazardous_materials_allowed"] = "no"
 		case "hotel_resort":
 			details["hospitality_property_type"] = "resort"
+			if category.hospitalityType != "" {
+				details["hospitality_property_type"] = category.hospitalityType
+			}
 			details["star_rating"] = "4"
 			details["current_operation_status"] = "operating"
 			details["total_units"] = "72"
