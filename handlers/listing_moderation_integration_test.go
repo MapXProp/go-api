@@ -88,6 +88,8 @@ func TestListingAutoPublishesThenSuperAdminCanUnapprove(t *testing.T) {
 	}
 
 	app := fiber.New()
+	t.Setenv("LISTING_MEDIA_DIR", t.TempDir())
+	app.Post("/listing-media", UploadListingMedia(db))
 	app.Post("/listings", CreateListing(db))
 	app.Get("/listings/:slug", GetListingBySlug(db))
 	app.Get("/admin/listings/review", GetAdminReviewListings(db))
@@ -97,7 +99,8 @@ func TestListingAutoPublishesThenSuperAdminCanUnapprove(t *testing.T) {
 	app.Patch("/me/notifications/:notificationID/read", MarkMyNotificationRead(db))
 
 	payload := integrationListingPayload(selectableListingCategoryCases[0], "", "", "")
-	payload.MediaItems = nil
+	imageURL := uploadIntegrationMedia(t, app, ownerToken, "image", "cover.png", []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 1, 1, 1, 'I', 'H', 'D', 'R'})
+	payload.MediaItems = []listingMediaInput{{URL: imageURL, MediaType: "image"}}
 	payload.Title = "Moderation integration " + uuid.NewString()
 	payload.ContactEmail = ownerEmail
 	createdBody := moderationRequest(t, app, "POST", "/listings", ownerToken, payload, fiber.StatusCreated)

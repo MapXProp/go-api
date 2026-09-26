@@ -62,6 +62,8 @@ func TestSavedListingsPersistMergeAndRespectVisibility(t *testing.T) {
 	}
 
 	app := fiber.New()
+	t.Setenv("LISTING_MEDIA_DIR", t.TempDir())
+	app.Post("/listing-media", UploadListingMedia(db))
 	app.Post("/listings", CreateListing(db))
 	app.Get("/me/saved-listings", GetMySavedListings(db))
 	app.Post("/me/saved-listings/merge", MergeMySavedListings(db))
@@ -69,7 +71,8 @@ func TestSavedListingsPersistMergeAndRespectVisibility(t *testing.T) {
 	app.Delete("/me/saved-listings/:identifier", UnsaveMyListing(db))
 
 	payload := integrationListingPayload(selectableListingCategoryCases[0], "", "", "")
-	payload.MediaItems = nil
+	imageURL := uploadIntegrationMedia(t, app, accessToken, "image", "cover.png", []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 1, 1, 1, 'I', 'H', 'D', 'R'})
+	payload.MediaItems = []listingMediaInput{{URL: imageURL, MediaType: "image"}}
 	payload.Title = "Saved listing integration " + uuid.NewString()
 	payload.ContactEmail = email
 	listingID := createIntegrationListing(t, app, accessToken, payload)

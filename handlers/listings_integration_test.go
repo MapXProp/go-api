@@ -282,11 +282,8 @@ func TestCreateListingPersistsAllSelectableCategories(t *testing.T) {
 
 				payload.ReplaceMedia = true
 				payload.Title += " (media cleared intentionally)"
-				clearedListingID := createIntegrationListing(t, app, accessToken, payload)
-				if clearedListingID != listingID {
-					t.Fatalf("media removal created duplicate listings: first=%d edit=%d", listingID, clearedListingID)
-				}
-				assertIntegrationListingMediaURLs(t, db, listingID, nil)
+				assertIntegrationListingRejected(t, app, accessToken, payload, "at least one property photo is required")
+				assertIntegrationListingMediaURLs(t, db, listingID, replacementMedia)
 
 				payload.Title += " (media restored)"
 				payload.MediaItems = replacementMedia
@@ -513,7 +510,7 @@ func assertIntegrationListingSoftDelete(
 	delayedPayload := payload
 	delayedPayload.EditingPublicListingID = ""
 	delayedPayload.SubmissionKey = storedSubmissionKey
-	delayedPayload.Title = storedTitle + " (delayed retry must not modify)"
+	delayedPayload.Title = "Delayed retry must not modify a deleted listing"
 	delayedBody, err := json.Marshal(delayedPayload)
 	if err != nil {
 		t.Fatal(err)

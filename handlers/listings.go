@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -146,6 +147,9 @@ func CreateListing(db *sql.DB) fiber.Handler {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
 		if err := req.validateSubmissionIdentity(); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+		if err := req.validatePublishRequirements(); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
 		replaceMedia := req.EditingPublicListingID == "" || req.ReplaceMedia
@@ -1461,7 +1465,7 @@ func validPositiveListingInt(value string) bool {
 
 func validPositiveListingFloat(value string) bool {
 	parsed, err := strconv.ParseFloat(strings.TrimSpace(strings.ReplaceAll(value, ",", "")), 64)
-	return err == nil && parsed > 0
+	return err == nil && !math.IsInf(parsed, 0) && !math.IsNaN(parsed) && parsed > 0
 }
 
 func (req createListingRequest) validateMediaOwnership(userID int64) error {
